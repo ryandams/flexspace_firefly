@@ -1,0 +1,10 @@
+# The NCS/Zephyr west workspace: nrf, zephyr, nrfxlib, firefly-app, modules,
+# bootloader, build outputs, etc. Each is either its own git repo (west
+# manages them) or a west/CMake download - none of it belongs here.
+/ncsworkspace/
+
+# MCUboot signing keys (see x_keygen.sh) - private, never commit.
+/keys/
+
+# Personal Claude Code permission overrides, not shared config.
+.claude/settings.local.json
