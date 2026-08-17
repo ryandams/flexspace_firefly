@@ -41,8 +41,8 @@ WEST_DIR="$WORKSPACE_DIR/.west"
 ZEPHYR_BASE_DIR="$WORKSPACE_DIR/zephyr"
 
 PROJECT_NAME="firefly-app"            # matches `self: path:` in west.yml
-PROJECT_GIT_REPO="firefly-app"        # repo name on flextrack
-PROJECT_GIT_URL=""                    # set once pushed; empty => west init -l
+PROJECT_GIT_REPO="firefly-app"        # repo name on GitHub
+PROJECT_GIT_URL="https://github.com/ryandams/firefly-app.git"
 PROJECT_GIT_REV="main"
 PROJECT_DIR="$WORKSPACE_DIR/$PROJECT_NAME"
 
