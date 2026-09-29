@@ -62,9 +62,8 @@ WEST_ZEPHYR_EXPORT=1
 #
 #     TARGET=nrf54lm20dk (default)  nrf54lm20dk/nrf54lm20a/cpuapp
 #                                    (NPU-less A variant - this project's
-#                                    main board; no modem on this board -
-#                                    srvNetwork needs one wired to uart30,
-#                                    see boards/nrf54lm20dk_*.overlay)
+#                                    main board; no modem wired up by
+#                                    default - see MODEM below)
 #     TARGET=nrf93m1dk               nrf93m1dk/nrf54l15/cpuapp
 #                                    (on-board nRF93M1 modem, no external
 #                                    wiring needed - default board revision
@@ -81,17 +80,60 @@ WEST_ZEPHYR_EXPORT=1
 #     nrf54lm20dk/nrf54lm20a/cpuflpr  <- RISC-V FLPR core (needs sysbuild)
 TARGET="${TARGET:-nrf54lm20dk}"
 
+#  MODEM only applies when TARGET=nrf54lm20dk: firefly-app's board files for
+#  that target carry no modem wiring of their own (see
+#  firefly-app/boards/nrf54lm20dk_nrf54lm20a_cpuapp.{conf,overlay}) - each
+#  externally-wired modem instead lives in its own additive
+#  conf/modem_<MODEM>.conf + boards/<MODEM>.overlay pair inside firefly-app,
+#  layered on with EXTRA_CONF_FILE/EXTRA_DTC_OVERLAY_FILE below. Leave unset
+#  (the default) to build nrf54lm20dk with no modem at all
+#  (FIREFLY_MODEM_SERVICE_NONE).
+#
+#     MODEM=eg800z   Quectel EG800Z, external, uart21 - no CMUX, drives the
+#                    modem directly via modemEg800zPpp.cpp.
+#     MODEM=le270    Fibocom LE270, external, uart21 (same physical pins as
+#                    eg800z - only one external modem is ever populated at
+#                    once) - supports CMUX, uses the generic modem_cellular
+#                    transport instead.
+#
+#  Usage:  TARGET=nrf54lm20dk MODEM=eg800z ./3_build.sh
+#          31/32/33_build.sh wrap the three supported (TARGET, MODEM)
+#          combinations - see README.md.
+#
+#  An nRF93M1 module wired externally to nrf54lm20dk (over uart30, rather
+#  than the on-board nrf93m1dk target above) is also available as
+#  MODEM=nrf93m1_ext, with no numbered build script of its own yet.
+MODEM="${MODEM:-}"
+
 APP_DIR="$PROJECT_NAME"
 BUILDS_DIR="$WORKSPACE_DIR/builds"
 
 case "$TARGET" in
     nrf54lm20dk)
         BOARD_NAME="${BOARD_NAME:-nrf54lm20dk/nrf54lm20a/cpuapp}"
-        BUILD_DIR="$BUILDS_DIR/build"
+        if [ -n "$MODEM" ]; then
+            BUILD_DIR="$BUILDS_DIR/build_$MODEM"
+            MODEM_CONF_FILE="$PROJECT_DIR/conf/modem_$MODEM.conf"
+            MODEM_OVERLAY_FILE="$PROJECT_DIR/boards/$MODEM.overlay"
+            [ -f "$MODEM_CONF_FILE" ] || {
+                echo "!!! Unknown MODEM '$MODEM' - no $MODEM_CONF_FILE" >&2
+                return 1 2>/dev/null || exit 1
+            }
+            [ -f "$MODEM_OVERLAY_FILE" ] || {
+                echo "!!! Unknown MODEM '$MODEM' - no $MODEM_OVERLAY_FILE" >&2
+                return 1 2>/dev/null || exit 1
+            }
+        else
+            BUILD_DIR="$BUILDS_DIR/build"
+            MODEM_CONF_FILE=""
+            MODEM_OVERLAY_FILE=""
+        fi
         ;;
     nrf93m1dk)
         BOARD_NAME="${BOARD_NAME:-nrf93m1dk/nrf54l15/cpuapp}"
         BUILD_DIR="$BUILDS_DIR/build_nrf93m1dk"
+        MODEM_CONF_FILE=""
+        MODEM_OVERLAY_FILE=""
         ;;
     *)
         echo "!!! Unknown TARGET '$TARGET' (nrf54lm20dk | nrf93m1dk)" >&2

@@ -19,6 +19,9 @@ workspace on a Linux filesystem; native_sim is a Linux executable.
 
 ```bash
 ./3_build.sh app-target -p       # unsigned development target image
+./31_build.sh -p                 # nRF93M1 modem target (on-board, nrf93m1dk)
+./32_build.sh -p                 # Quectel EG800Z modem target (external, uart21)
+./33_build.sh -p                 # Fibocom LE270 modem target (external, uart21)
 ./4_flash.sh                     # flash through J-Link Remote Server
 ./5_debug.sh                     # interactive target debugging
 ./6_menuconfig.sh                # configure an existing build
@@ -36,6 +39,20 @@ Release builds require a private signing key. Run `./x_keygen.sh`, protect the
 result, then use `./3_build.sh release -p`. Release mode alone enables MCUboot,
 production configuration, signing, MCUboot, and a DFU package. The ordinary target
 build does not claim to be signed.
+
+## Modem targets
+
+`31_build.sh`/`32_build.sh`/`33_build.sh` are thin wrappers around
+`3_build.sh` that fix `TARGET` (and, for the two external modems, `MODEM`)
+to one of the three modems this project supports - see `variables.sh` for
+what each variable selects and `firefly-app/README.md` for the app-side
+Kconfig/devicetree behind them. Each gets its own build directory
+(`ncsworkspace/builds/build_nrf93m1dk`, `build_eg800z`, `build_le270`), so
+switching between them never forces a pristine rebuild of another. Plain
+`3_build.sh`/`TARGET=nrf54lm20dk` with no `MODEM` set builds with no modem
+at all. `4_flash.sh`/`5_debug.sh`/`6_menuconfig.sh` follow whichever
+`TARGET`/`MODEM` combination is currently exported, the same way they
+already follow `TARGET` alone.
 
 ## Test layers
 
