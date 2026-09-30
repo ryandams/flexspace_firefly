@@ -23,7 +23,11 @@ workspace on a Linux filesystem; native_sim is a Linux executable.
 ./32_build.sh -p                 # Quectel EG800Z modem target (external, uart21)
 ./33_build.sh -p                 # Fibocom LE270 modem target (external, uart21)
 ./4_flash.sh                     # flash through J-Link Remote Server
+./41_flash.sh                    # flash the nRF93M1 target - matches 31_build.sh
+./42_flash.sh                    # flash the EG800Z target - matches 32_build.sh
+./43_flash.sh                    # flash the LE270 target - matches 33_build.sh
 ./5_debug.sh                     # interactive target debugging
+./51_debug.sh / 52 / 53          # debug the nRF93M1 / EG800Z / LE270 target
 ./6_menuconfig.sh                # configure an existing build
 ./7_test.sh                      # all automated tests + combined report
 ./12_format.sh check             # verify C/C++ formatting
@@ -50,9 +54,19 @@ Kconfig/devicetree behind them. Each gets its own build directory
 (`ncsworkspace/builds/build_nrf93m1dk`, `build_eg800z`, `build_le270`), so
 switching between them never forces a pristine rebuild of another. Plain
 `3_build.sh`/`TARGET=nrf54lm20dk` with no `MODEM` set builds with no modem
-at all. `4_flash.sh`/`5_debug.sh`/`6_menuconfig.sh` follow whichever
-`TARGET`/`MODEM` combination is currently exported, the same way they
-already follow `TARGET` alone.
+at all.
+
+`41/42/43_flash.sh` and `51/52/53_debug.sh` are the matching wrappers for
+`4_flash.sh`/`5_debug.sh`. Use them, not the bare `TARGET=... MODEM=...
+./4_flash.sh` form: a numbered build script's `export` only lives inside
+that script's own process - it does **not** carry over to a separate
+`./4_flash.sh` invocation in your shell. Running `./33_build.sh` then
+plain `./4_flash.sh` silently flashes the last plain (no-modem) build
+instead of `build_le270`, with no error - the two scripts have no way to
+know a different target was just built. If you do want the bare form
+(e.g. `TARGET=nrf54lm20dk MODEM=le270 ./4_flash.sh`), export the same
+`TARGET`/`MODEM` pair to *every* script in the sequence, in the same shell
+session.
 
 ## Test layers
 
