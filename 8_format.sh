@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Format or verify all owned C and C++ sources using ncsworkspace/.clang-format.
+# Format or verify all owned C and C++ sources using firefly-app/.clang-format.
 set -euo pipefail
 source "$(dirname "$0")/variables.sh"
 
