@@ -1,0 +1,33 @@
+{
+    // Same image and mount as the CLI scripts (see 0_docker.sh / variables.sh),
+    // so a build from this terminal and one from `./3_build.sh` in WSL share
+    // build directories. initializeCommand runs in WSL and rebuilds the image
+    // first if docker/Dockerfile or a pin in variables.sh changed.
+    "name": "firefly",
+    "image": "firefly-dev:latest",
+    "initializeCommand": "./0_docker.sh build --if-stale",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/firefly,type=bind",
+    "workspaceFolder": "/workspaces/firefly",
+    "runArgs": [
+        "--init",
+        "--network=host",
+        "--cap-add=SYS_PTRACE",
+        "--security-opt=seccomp=unconfined"
+    ],
+    "remoteUser": "dev",
+    // The image is already built with your UID (0_docker.sh passes it).
+    "updateRemoteUserUID": false,
+    // `west zephyr-export` writes into $HOME, which a fresh container lacks;
+    // the nRF Connect extension's SDK detection reads it.
+    "postCreateCommand": "bash -c 'source ./variables.sh && [ -d \"$WEST_DIR\" ] && cd \"$WORKSPACE_DIR\" && ncs west zephyr-export || true'",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "nordic-semiconductor.nrf-connect-extension-pack",
+                "marus25.cortex-debug",
+                "llvm-vs-code-extensions.vscode-clangd",
+                "ms-vscode.cpptools"
+            ]
+        }
+    }
+}

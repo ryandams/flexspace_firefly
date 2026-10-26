@@ -78,10 +78,66 @@ fi
 
 # ---- update ---------------------------------------------------------------
 cd "$WORKSPACE_DIR"
+
+# ---- patches --------------------------------------------------------------
+#  firefly-app/zephyr/patches.yml is the source of truth for what is changed
+#  in zephyr. `west patch apply` is not idempotent - on an already-patched
+#  tree it fails on the first patch - so un-patch, update, re-patch.
+#
+#  `west patch clean` is `git checkout . && git clean -dfx` in every patched
+#  module, which would also discard edits made there by hand. Snapshot each
+#  module first; if the re-patched tree differs, the snapshot is kept as
+#  refs/firefly/pre-repatch in that module instead of being lost.
+PATCH_YML="$PROJECT_DIR/zephyr/patches.yml"
+patched_modules=()
+if [ -f "$PATCH_YML" ]; then
+    mapfile -t patched_modules < <(
+        awk '/^[[:space:]]*module:/ {print $2}' "$PATCH_YML" | sort -u)
+fi
+
+# Tree hash of the working tree incl. untracked files (not ignored ones),
+# without touching the real index.
+worktree_tree() {
+    local idx; idx="$(mktemp)"
+    rm -f "$idx"
+    GIT_INDEX_FILE="$idx" git -C "$1" add -A >/dev/null 2>&1 \
+        && GIT_INDEX_FILE="$idx" git -C "$1" write-tree
+    rm -f "$idx"
+}
+
+declare -A snap_head snap_tree
+for m in "${patched_modules[@]}"; do
+    d="$WORKSPACE_DIR/$m"
+    [ -d "$d/.git" ] || continue
+    snap_head[$m]="$(git -C "$d" rev-parse HEAD)"
+    snap_tree[$m]="$(worktree_tree "$d")"
+    git -C "$d" update-ref refs/firefly/pre-repatch \
+        "$(git -C "$d" -c user.name=firefly -c user.email=firefly@localhost \
+            commit-tree "${snap_tree[$m]}" -p HEAD \
+            -m "2_workspace.sh: $m before west patch clean")"
+done
+[ "${#snap_tree[@]}" -eq 0 ] || ncs west patch clean
+
 c_info "west update  (first run clones the NCS tree - several GB)"
 ncs west update
 
-ncs west patch apply || true
+ncs west patch apply --roll-back
+
+for m in "${!snap_tree[@]}"; do
+    d="$WORKSPACE_DIR/$m"
+    if [ "$(git -C "$d" rev-parse HEAD)" = "${snap_head[$m]}" ] \
+       && [ "$(worktree_tree "$d")" = "${snap_tree[$m]}" ]; then
+        git -C "$d" update-ref -d refs/firefly/pre-repatch
+    elif [ "$(git -C "$d" rev-parse HEAD)" = "${snap_head[$m]}" ]; then
+        c_warn "!!! $m had changes that are not in patches.yml. They were saved:"
+        c_warn "      git -C $d diff refs/firefly/pre-repatch"
+        c_warn "    Turn them into a patch, or restore with"
+        c_warn "      git -C $d checkout refs/firefly/pre-repatch -- ."
+    else
+        c_ok "$m moved to a new revision and was re-patched. Its previous state is"
+        c_ok "  saved as refs/firefly/pre-repatch in $d"
+    fi
+done
 
 if [ "$WEST_ZEPHYR_EXPORT" = 1 ]; then
     ncs west zephyr-export

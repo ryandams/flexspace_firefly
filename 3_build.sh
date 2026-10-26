@@ -15,6 +15,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -d "$WEST_DIR" ] || { c_err "No workspace - run ./2_workspace.sh"; exit 1; }
+drop_foreign_build_dir "$BUILD_DIR"
 
 # -DAPP_DIR=<absolute path> is belt-and-suspenders: sysbuild's top-level
 # CMakeLists.txt (zephyr/share/sysbuild/CMakeLists.txt) is *supposed* to pick

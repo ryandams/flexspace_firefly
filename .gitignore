@@ -8,3 +8,6 @@
 
 # Personal Claude Code permission overrides, not shared config.
 .claude/settings.local.json
+
+# J-Link .deb copied in by 0_docker.sh (SEGGER EULA - not redistributable).
+/docker/vendor/

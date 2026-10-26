@@ -28,6 +28,12 @@
 #                                 gate" step render the twister coverage report
 # ===========================================================================
 set -euo pipefail
+[ "${FIREFLY_NATIVE:-0}" = 1 ] || {
+    echo "The toolchain now ships in the firefly-dev container image - run" >&2
+    echo "./0_docker.sh install && ./0_docker.sh build instead. To set up raw WSL" >&2
+    echo "anyway (no container): FIREFLY_NATIVE=1 $0" >&2
+    exit 1
+}
 source "$(dirname "$0")/variables.sh"
 
 c_info "Installing apt prerequisites..."

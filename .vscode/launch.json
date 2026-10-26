@@ -11,7 +11,7 @@
             "device": "nRF54LM20A_M33",
             "interface": "swd",
             "ipAddress": "192.168.144.1",
-            "gdbPath": "/home/ryan/ncs/toolchains/fbf7391cab/opt/zephyr-sdk/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "gdbPath": "/opt/ncs/toolchain/opt/zephyr-sdk/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
             "runToEntryPoint": "main"
         },
         {
@@ -24,7 +24,7 @@
             "device": "nRF54L15_M33",
             "interface": "swd",
             "ipAddress": "192.168.144.1",
-            "gdbPath": "/home/ryan/ncs/toolchains/fbf7391cab/opt/zephyr-sdk/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
+            "gdbPath": "/opt/ncs/toolchain/opt/zephyr-sdk/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
             "runToEntryPoint": "main"
         },
         {

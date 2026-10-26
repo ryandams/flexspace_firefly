@@ -12,8 +12,52 @@ lives separately under `ncsworkspace/test-results/`.
 
 ## Setup
 
-Run `./0_prereqs.sh`, `./1_toolchain.sh`, then `./2_workspace.sh`. Keep the
-workspace on a Linux filesystem; native_sim is a Linux executable.
+The build environment is a Docker image (`firefly-dev`), so every developer
+compiles with the same toolchain, nrfutil and J-Link versions - all pinned in
+`variables.sh`. Docker Engine runs inside WSL2 itself; Docker Desktop is not
+used. Keep the repo on the Linux filesystem (`~/firefly`, not `/mnt/c`); it is
+bind-mounted into the container, so sources and builds stay on ext4.
+
+```bash
+./0_docker.sh install    # once per machine: Docker Engine (sudo), then reopen WSL
+./0_docker.sh build      # ~10 min: the image, with the NCS toolchain baked in
+./2_workspace.sh         # west init/update - clones several GB
+```
+
+`0_docker.sh build` needs the J-Link `.deb` (`JLINK_VERSION` in
+`variables.sh`). SEGGER's EULA blocks scripted downloads, so get it from
+segger.com in a browser; the script picks it up from your Windows Downloads
+folder.
+
+From then on, run the numbered scripts from WSL exactly as before. Each one
+re-launches itself in a throwaway container with the repo mounted at
+`/workspaces/firefly`, the same path for everyone. If `docker/Dockerfile` or
+a pin has changed since your image was built, the next script rebuilds the
+image first. `./0_docker.sh shell` opens an interactive shell in the container.
+
+**VS Code:** open the folder and choose *Reopen in Container*
+(`.devcontainer/`). The dev container uses the same image and mount as the
+scripts, so builds from either are interchangeable. `launch.json` and the
+clangd paths assume you are inside it. Commit and push from WSL or from the
+dev container, which forwards your git credentials; the plain script containers
+have no git credentials.
+
+**Flashing and debugging** work as before: the container shares WSL's network,
+so it reaches `JLinkRemoteServer.exe` on Windows the same way.
+
+The first build after moving to the container needs `-p`: CMake caches from
+raw WSL hold the old paths.
+
+To run on raw WSL without the container, set up with
+`FIREFLY_NATIVE=1 ./0_prereqs.sh && FIREFLY_NATIVE=1 ./1_toolchain.sh` and
+prefix every script with `FIREFLY_NATIVE=1`.
+
+### Changing toolchain versions
+
+Edit the pins in `variables.sh` (`NCS_VERSION`, `NCS_TOOLCHAIN_BUNDLE_ID`,
+`NRFUTIL_*`, `JLINK_VERSION`) and commit. Everyone's image rebuilds on their
+next script run. The bundle ID for a version is shown by
+`nrfutil sdk-manager toolchain list` after installing it once.
 
 ## Build and test modes
 

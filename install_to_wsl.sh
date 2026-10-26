@@ -87,8 +87,8 @@ Installed to $DEST
 
 Next:
     cd $DEST
-    ./0_prereqs.sh        apt packages + nRF Util
-    ./1_toolchain.sh      NCS toolchain bundle
+    ./0_docker.sh install Docker Engine in WSL2 (then reopen WSL)
+    ./0_docker.sh build   firefly-dev image with the NCS toolchain
     ./2_workspace.sh      west init -l firefly-app + update   (clones several GB)
     ./7_test.sh           all automated tests + combined report
     ./3_build.sh          build for the DK

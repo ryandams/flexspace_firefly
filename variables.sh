@@ -33,6 +33,36 @@ NRFUTIL="$NRFUTIL_DIR/nrfutil"
 NRFUTIL_URL="https://files.nordicsemi.com/artifactory/swtools/external/nrfutil/executables/x86_64-unknown-linux-gnu/nrfutil"
 NRFUTIL_COMMANDS=(sdk-manager device)
 
+#  Exact pins for the container image (docker/Dockerfile). Bump these
+#  deliberately - every developer's image rebuilds on their next script run.
+#  NCS_TOOLCHAIN_BUNDLE_ID is what `nrfutil sdk-manager toolchain list`
+#  shows for NCS_VERSION; pinning the bundle, not just the version, stops a
+#  patched bundle for the same release slipping into newer images.
+NRFUTIL_VERSION="8.2.1"
+NRFUTIL_SDK_MANAGER_VERSION="1.16.1"
+NRFUTIL_DEVICE_VERSION="2.20.0"
+NCS_TOOLCHAIN_BUNDLE_ID="fbf7391cab"
+JLINK_VERSION="V966"                  # JLink_Linux_V966_x86_64.deb
+
+# ---------------------------------------------------------------------------
+#  Container
+# ---------------------------------------------------------------------------
+#  Every numbered script runs inside the firefly-dev image. Run from a WSL
+#  shell, a script re-launches itself in a throwaway container (see the end
+#  of this file); run from the dev container's own terminal it just runs.
+#  The repo is bind-mounted at the same path for everyone, so build trees,
+#  compile_commands.json and launch.json are identical across machines.
+#
+#     FIREFLY_NATIVE=1 ./3_build.sh    escape hatch: run on raw WSL with a
+#                                      toolchain from 0_prereqs/1_toolchain
+FIREFLY_IMAGE="${FIREFLY_IMAGE:-firefly-dev:latest}"
+FIREFLY_CONTAINER_ROOT="/workspaces/firefly"
+
+#  Variables a script's caller may export that must reach the container.
+#  BOOT_KEY_FILE is translated when it points inside the repo.
+FIREFLY_ENV_PASSTHROUGH=(TARGET MODEM BOARD_NAME SIM_BOARD_NAME PRISTINE
+                         FLASH_RUNNER JLINK_HOST PROBE_SERIAL BOOT_KEY_FILE)
+
 # ---------------------------------------------------------------------------
 #  Workspace
 # ---------------------------------------------------------------------------
@@ -214,6 +244,20 @@ head_of() {
     printf '%s\n' "$out" | head -n "$n"
 }
 
+# A CMake build directory only works at the path it was configured at: its
+# cache pins absolute paths, and even west's "make it pristine" step runs a
+# script from the old ZEPHYR_BASE. Build dirs made on raw WSL (/home/<you>/...)
+# or another machine are therefore useless here - they are generated output,
+# so remove them rather than fail.
+drop_foreign_build_dir() {
+    local dir="$1" cache="$1/CMakeCache.txt" was
+    [ -f "$cache" ] || return 0
+    was="$(sed -n 's/^CMAKE_CACHEFILE_DIR:INTERNAL=//p' "$cache")"
+    [ -n "$was" ] && [ "$was" != "$dir" ] || return 0
+    c_warn "Removing $dir - it was configured at $was"
+    rm -rf "$dir"
+}
+
 # Newest stable NCS release, pre-releases excluded.
 ncs_latest_stable() {
     local bin; bin="$(nrfutil_bin)" || return 1
@@ -252,3 +296,91 @@ windows_host_ip() {
     if [ -n "$JLINK_HOST" ]; then echo "$JLINK_HOST"; return; fi
     ip route show default 2>/dev/null | awk '/default/ {print $3; exit}'
 }
+
+# ===========================================================================
+#  Container dispatch
+# ===========================================================================
+
+# Fingerprint of everything that goes into the image. Stamped on it as a label
+# at build time; a mismatch means docker/Dockerfile or a pin changed since.
+firefly_image_hash() {
+    {
+        cat "$FIREFLY_ROOT/docker/Dockerfile"
+        echo "$NRFUTIL_VERSION $NRFUTIL_SDK_MANAGER_VERSION $NRFUTIL_DEVICE_VERSION"
+        echo "$NCS_VERSION $NCS_TOOLCHAIN_BUNDLE_ID $JLINK_VERSION $(id -u):$(id -g)"
+    } | sha256sum | cut -c1-16
+}
+
+firefly_image_current() {
+    local have
+    have="$(docker image inspect -f '{{ index .Config.Labels "firefly.hash" }}' \
+            "$FIREFLY_IMAGE" 2>/dev/null)" || return 1
+    [ "$have" = "$(firefly_image_hash)" ]
+}
+
+# Host path under the repo -> the same path inside the container.
+firefly_container_path() {
+    case "$1" in
+        "$FIREFLY_ROOT")   echo "$FIREFLY_CONTAINER_ROOT" ;;
+        "$FIREFLY_ROOT"/*) echo "$FIREFLY_CONTAINER_ROOT${1#"$FIREFLY_ROOT"}" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Run a command in a fresh container with the repo mounted. Never returns.
+#
+#   --network host     the container shares WSL's network, so
+#                      windows_host_ip() and JLinkRemoteServer work unchanged
+#   SYS_PTRACE +
+#   seccomp=unconfined LeakSanitizer (./7_test.sh sanitizer) and gdb on
+#                      native_sim both need ptrace/personality
+firefly_docker_exec() {
+    command -v docker >/dev/null 2>&1 || {
+        c_err "!!! docker not found - run ./0_docker.sh install"; exit 1; }
+    if ! firefly_image_current; then
+        c_warn "Image $FIREFLY_IMAGE is missing or out of date - building it."
+        "$FIREFLY_ROOT/0_docker.sh" build || exit 1
+    fi
+
+    local tty=(-i) envs=() v p
+    [ -t 0 ] && [ -t 1 ] && tty=(-it)
+    # Only what the caller exported (e.g. 31_build.sh's TARGET) - not the
+    # defaults this file filled in, which the container works out itself.
+    for v in "${FIREFLY_ENV_PASSTHROUGH[@]}"; do
+        [[ "$(declare -p "$v" 2>/dev/null)" == "declare -x"* ]] || continue
+        p="${!v}"
+        if [ "$v" = BOOT_KEY_FILE ]; then
+            p="$(firefly_container_path "$(realpath -m "$p")")" || {
+                c_err "!!! BOOT_KEY_FILE must be inside $FIREFLY_ROOT to be visible in the container"
+                exit 1
+            }
+        fi
+        envs+=(-e "$v=$p")
+    done
+
+    # The image has no git identity; lend it yours for anything committed
+    # in there. (Credentials are deliberately not forwarded - push from WSL.)
+    local name email
+    name="$(git config --get user.name || true)"
+    email="$(git config --get user.email || true)"
+    [ -z "$name" ]  || envs+=(-e "GIT_AUTHOR_NAME=$name" -e "GIT_COMMITTER_NAME=$name")
+    [ -z "$email" ] || envs+=(-e "GIT_AUTHOR_EMAIL=$email" -e "GIT_COMMITTER_EMAIL=$email")
+
+    local wd
+    wd="$(firefly_container_path "$PWD")" || wd="$FIREFLY_CONTAINER_ROOT"
+
+    exec docker run --rm "${tty[@]}" --init --network host \
+        --cap-add SYS_PTRACE --security-opt seccomp=unconfined \
+        -v "$FIREFLY_ROOT:$FIREFLY_CONTAINER_ROOT" -w "$wd" \
+        "${envs[@]}" "$FIREFLY_IMAGE" "$@"
+}
+
+# A numbered script sourcing this from a WSL shell re-runs itself in the
+# container. "$0"/"$@" are the sourcing script's own name and arguments.
+# 0_docker.sh sets FIREFLY_HOST_ONLY - it is what builds the container.
+if [ -z "${FIREFLY_CONTAINER:-}" ] && [ "${FIREFLY_NATIVE:-0}" != 1 ] \
+   && [ "${FIREFLY_HOST_ONLY:-0}" != 1 ]; then
+    __script="$(firefly_container_path "$(realpath "$0")")" || {
+        c_err "!!! $0 is not inside $FIREFLY_ROOT"; exit 1; }
+    firefly_docker_exec "$__script" "$@"
+fi
