@@ -105,7 +105,7 @@ worktree_tree() {
     rm -f "$idx"
 }
 
-declare -A snap_head snap_tree
+declare -A snap_head=() snap_tree=()
 for m in "${patched_modules[@]}"; do
     d="$WORKSPACE_DIR/$m"
     [ -d "$d/.git" ] || continue
