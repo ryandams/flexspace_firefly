@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ===========================================================================
-#  0. Docker build environment (replaces 0_prereqs.sh + 1_toolchain.sh)
+#  0. Docker build environment
 # ===========================================================================
 #    ./0_docker.sh install      Docker Engine into this WSL2 distro (sudo)
 #    ./0_docker.sh build        build the firefly-dev image (~10 min, ~7 GB)

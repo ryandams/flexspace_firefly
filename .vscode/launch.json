@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug firefly-app (nrf54lm20dk, cortex-debug, remote J-Link over TCP)",
+            "name": "Debug firefly-app (nrf54lm20dk, cortex-debug, J-Link over USB)",
             "type": "cortex-debug",
             "request": "launch",
             "cwd": "${workspaceFolder}",
@@ -10,20 +10,18 @@
             "servertype": "jlink",
             "device": "nRF54LM20A_M33",
             "interface": "swd",
-            "ipAddress": "192.168.144.1",
             "gdbPath": "/opt/ncs/toolchain/opt/zephyr-sdk/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
             "runToEntryPoint": "main"
         },
         {
-            "name": "Debug firefly-app (nrf93m1dk, cortex-debug, remote J-Link over TCP)",
+            "name": "Debug firefly-app (nrf93m1dk, cortex-debug, J-Link over USB)",
             "type": "cortex-debug",
             "request": "launch",
             "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/ncsworkspace/builds/build_nrf93m1dk/firefly-app/zephyr/zephyr.elf",
+            "executable": "${workspaceFolder}/ncsworkspace/builds/build/firefly-app/zephyr/zephyr.elf",
             "servertype": "jlink",
             "device": "nRF54L15_M33",
             "interface": "swd",
-            "ipAddress": "192.168.144.1",
             "gdbPath": "/opt/ncs/toolchain/opt/zephyr-sdk/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb",
             "runToEntryPoint": "main"
         },

@@ -2,12 +2,9 @@
     "nrf-connect.applications": [
         "${workspaceFolder}/ncsworkspace/firefly-app"
     ],
-    "nrf-connect.remoteDevices": [
-        "192.168.144.1:19020"
-    ],
-    "C_Cpp.default.compileCommands": "${workspaceFolder}/ncsworkspace/builds/build_nrf93m1dk/firefly-app/compile_commands.json",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/ncsworkspace/builds/build/firefly-app/compile_commands.json",
     "C_Cpp.intelliSenseEngine": "disabled",
     "clangd.arguments": [
-        "--compile-commands-dir=${workspaceFolder}/ncsworkspace/builds/build_nrf93m1dk/firefly-app"
+        "--compile-commands-dir=${workspaceFolder}/ncsworkspace/builds/build/firefly-app"
     ]
 }

@@ -1,52 +1,41 @@
 #!/usr/bin/env bash
 # ===========================================================================
-#  4. Flash the current TARGET board from WSL2
+#  4. Flash the board selected in firefly-app/prj.conf
 # ===========================================================================
-#  WSL2 has no native USB, so the debug probe is not visible here. Instead of
-#  usbipd passthrough (fiddly, and with known J-Link issues), this connects to
-#  a J-Link remote server running on Windows over TCP.
+#  The DK's on-board J-Link is passed from Windows to WSL with usbipd-win and
+#  used as a local USB probe (one-time machine setup: ./x_usb.sh setup).
+#  Run from WSL, this attaches the probe itself before entering the
+#  container; the first time for a given DK/USB port, Windows asks for admin
+#  approval to share it.
 #
-#  On Windows, once per session:
-#      JLinkRemoteServer.exe
-#
-#  Then from here (flashes whatever TARGET was last built - see variables.sh):
+#  Flashes what ./3_build.sh last built:
 #      ./4_flash.sh
-#      TARGET=nrf93m1dk ./4_flash.sh
 #
-#  Override the host with:  JLINK_HOST=192.168.1.50 ./4_flash.sh
+#  Several J-Links attached: PROBE_SERIAL=<serial> ./4_flash.sh
+#  (./x_usb.sh list shows them).
 # ===========================================================================
 set -euo pipefail
+FIREFLY_USB=1
 source "$(dirname "$0")/variables.sh"
 
 [ -d "$BUILD_DIR" ] || { c_err "!!! No build - run ./3_build.sh first"; exit 1; }
 
-host="$(windows_host_ip)"
-if [ -z "$host" ]; then
-    c_err "!!! Could not work out the Windows host IP."
-    c_err "    Set it explicitly:  JLINK_HOST=<ip> ./4_flash.sh"
-    exit 1
-fi
-
-c_info "J-Link remote server expected at $host"
-[ -n "$PROBE_SERIAL" ] && c_warn "PROBE_SERIAL is set but ignored - the remote bridge reaches" \
-    "whichever probe JLinkRemoteServer.exe has open on the Windows side, not by serial."
-args=(west flash --build-dir "$BUILD_DIR" -r jlink --dev-id "$host")
+select_probe || exit 1
+args=(west flash --build-dir "$BUILD_DIR" -r "$FLASH_RUNNER" "${PROBE_ARGS[@]}")
 
 cd "$WORKSPACE_DIR"
 if ! ncs "${args[@]}"; then
     c_err ""
     c_err "!!! Flash failed. Check in order:"
-    c_err "    1. JLinkExe installed locally in WSL2? ('required program JLinkExe"
-    c_err "       not found' means it isn't - see ./0_prereqs.sh for how)"
-    c_err "    2. JLinkRemoteServer.exe running on Windows?"
-    c_err "    3. Its banner IP matches '$host' (printed above)? If not:"
-    c_err "       JLINK_HOST=<that ip> ./4_flash.sh"
-    c_err "    4. Windows firewall allowing it on the WSL virtual adapter?"
-    c_err "    5. DK powered and enumerated on the Windows side?"
-    c_err "    6. Device protected? Recover it with nrfutil on the host that owns the probe."
+    c_err "    1. DK powered, and the J-Link still attached? ./x_usb.sh list"
+    c_err "       (a DK power-cycle or replug drops the attachment - re-run this)"
+    c_err "    2. Another program using the probe? Only one J-Link client at a time."
+    c_err "    3. Device protected? Recover it, then flash again:"
+    c_err "       ./0_docker.sh shell, then: nrfutil device recover --serial-number ${PROBE_ARGS[1]}"
     exit 1
 fi
 
 c_ok ""
-c_ok "Flashed. Serial console is on the Windows side - use a terminal there,"
-c_ok "or attach the CDC device into WSL2 with usbipd if you prefer."
+c_ok "Flashed. The DK's serial console is in WSL too while it is attached:"
+c_ok "  $(ls /dev/ttyACM* 2>/dev/null | tr '\n' ' ')"
+c_ok "(./x_usb.sh detach hands the DK back to Windows.)"

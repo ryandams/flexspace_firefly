@@ -5,15 +5,32 @@
     // first if docker/Dockerfile or a pin in variables.sh changed.
     "name": "firefly",
     "image": "firefly-dev:latest",
-    "initializeCommand": "./0_docker.sh build --if-stale",
+    // The probe is attached here, in WSL, because usbipd.exe is not reachable
+    // from inside the container. A DK plugged in later: ./x_usb.sh attach.
+    "initializeCommand": "./0_docker.sh build --if-stale && (./x_usb.sh attach || true)",
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/firefly,type=bind",
     "workspaceFolder": "/workspaces/firefly",
     "runArgs": [
         "--init",
         "--network=host",
         "--cap-add=SYS_PTRACE",
-        "--security-opt=seccomp=unconfined"
+        "--security-opt=seccomp=unconfined",
+        // J-Links attached by usbipd (major 189) and their serial consoles
+        // (major 166), including ones attached after the container started.
+        "--device-cgroup-rule=c 189:* rmw",
+        "--device-cgroup-rule=c 166:* rmw"
     ],
+    // WSL's /dev, not just /dev/bus/usb: that only exists once ./x_usb.sh
+    // setup has loaded vhci_hcd, and a missing bind source would stop the
+    // container from starting at all. A whole-/dev mount also shows devices
+    // attached after start (DK replugged, /dev/ttyACM*); the cgroup rules
+    // above still limit access to USB and ACM nodes.
+    "mounts": [
+        "source=/dev,target=/dev/host,type=bind"
+    ],
+    // J-Link/libusb look for /dev/bus/usb - point it at WSL's. Serial
+    // consoles are /dev/host/ttyACM*.
+    "postStartCommand": "sudo mkdir -p /dev/bus && sudo ln -sfn /dev/host/bus/usb /dev/bus/usb",
     "remoteUser": "dev",
     // The image is already built with your UID (0_docker.sh passes it).
     "updateRemoteUserUID": false,

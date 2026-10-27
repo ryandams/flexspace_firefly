@@ -6,6 +6,8 @@
 #                         .1, .2, ... instead of overwriting it, so this
 #                         directory only ever grows until you clean it)
 set -euo pipefail
+# The hardware stage needs the DK's J-Link and serial console in the container.
+[ "${1:-}" = test-hardware ] && FIREFLY_USB=1
 source "$(dirname "$0")/variables.sh"
 mode="${1:-all}"
 suite="${2:-}"
@@ -66,8 +68,9 @@ mkdir -p "$results_dir"
 base=(west twister -T "$path" --inline-logs --warnings-as-errors -O "$results_dir")
 case "$mode" in
     test-native) ncs "${base[@]}" -p "$SIM_BOARD_NAME" --tag firefly ;;
-    test-target-build) ncs "${base[@]}" -p "$BOARD_NAME" --build-only --tag portable ;;
+    test-target-build) require_board; ncs "${base[@]}" -p "$BOARD_NAME" --build-only --tag portable ;;
     test-hardware)
+        require_board
         ncs "${base[@]}" -p "$BOARD_NAME" --device-testing \
             --device-serial "${DEVICE_SERIAL:-/dev/ttyACM0}" --tag hardware ;;
     coverage)

@@ -27,9 +27,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NRFUTIL_HOME=/opt/nrfutil \
     FIREFLY_CONTAINER=1
 
-# Same package list as 0_prereqs.sh (see there for why each is needed), plus
-# what a minimal container lacks: ca-certificates, iproute2 (windows_host_ip),
-# sudo, and libusb/libudev for `nrfutil device`.
+# The NCS toolchain bundle (below) brings the Zephyr SDK, CMake, ninja,
+# gperf, dtc, Python and west. These are what it does NOT bring:
+#   gcc-multilib, g++-multilib   native_sim builds 32-bit with the host compiler
+#   git, curl, file, xz-utils    used by west and the toolchain installer
+#   libxcb-*, libxkbcommon-x11-0,
+#   libsm6, libice6              J-Link's package depends on them (GUI tools)
+#   gdb                          debugging native_sim builds (launch.json)
+#   ripgrep                      scripts/check_thread_registry.sh and
+#                                scripts/static_analysis.sh call `rg`
+#   gcovr                        ./7_test.sh coverage report
+#   ca-certificates, iproute2,
+#   sudo                         what a minimal container lacks
+#   libusb, libudev              `nrfutil device` and J-Link USB access
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential gcc-multilib g++-multilib \
@@ -46,8 +56,9 @@ RUN apt-get update \
 # ---- J-Link -----------------------------------------------------------------
 #  EULA-gated download, so ./0_docker.sh copies the .deb into vendor/ first.
 #  The package's postinst reloads udev rules, which fails without a running
-#  udevd - and there is no USB in here anyway (the probe is reached over TCP
-#  through JLinkRemoteServer on Windows). Unpack, drop the postinst, then let
+#  udevd. Not needed: the container never sees a device being added - USB
+#  nodes come in already permission-fixed by WSL's udev (see x_usb.sh). Unpack,
+#  drop the postinst, then let
 #  apt resolve its dependencies and finish configuring it.
 COPY vendor/JLink_Linux_${JLINK_VERSION}_x86_64.deb /tmp/jlink.deb
 RUN apt-get update \

@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Log Viewer</title>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --border: #3c3c3c;
+    --text: #d4d4d4;
+    --muted: #888;
+    --inf: #6a9955;
+    --wrn: #dcb67a;
+    --err: #f14c4c;
+    --accent: #3794ff;
+    --ok: #4ec94e;
+    --row-alt: #242424;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  .bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .bar input[type=text] {
+    background: #1e1e1e; color: var(--text); border: 1px solid var(--border);
+    padding: 4px 8px; border-radius: 3px; flex: 1; min-width: 150px;
+    font-family: inherit; font-size: inherit;
+  }
+  .bar button {
+    background: #333; color: var(--text); border: 1px solid var(--border);
+    padding: 4px 10px; border-radius: 3px; cursor: pointer;
+    font-family: inherit; font-size: inherit;
+  }
+  .bar button:hover:not(:disabled) { background: #3d3d3d; }
+  .bar button:disabled { opacity: 0.4; cursor: default; }
+  .bar select, .bar input[type=number] {
+    background: #1e1e1e; color: var(--text); border: 1px solid var(--border);
+    padding: 3px 4px; border-radius: 3px; font-family: inherit; font-size: 12px;
+  }
+  .bar label.inline { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+  .sep { width: 1px; height: 20px; background: var(--border); }
+  #stats { color: var(--muted); white-space: nowrap; }
+  #dropped { color: var(--wrn); white-space: nowrap; }
+
+  #connectBtn.connected { background: #1f4d2b; border-color: #2e7d3f; color: #cfe9d4; }
+  #dot { width: 8px; height: 8px; border-radius: 50%; background: #666; flex-shrink: 0; }
+  #dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  #dot.err { background: var(--err); box-shadow: 0 0 6px var(--err); }
+  #portLabel { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  #logFileLabel { color: var(--muted); font-size: 12px; max-width: 220px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+
+  #banner {
+    display: none; padding: 6px 10px; background: #4a2c2c; color: #f5c2c2;
+    border-bottom: 1px solid #6b3a3a; font-size: 12px;
+  }
+  #banner.show { display: block; }
+  #banner.info { background: #2a3a4a; color: #bcd6f0; border-bottom-color: #3a5570; }
+
+  #exportWrap { position: relative; }
+  #exportMenu {
+    display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; z-index: 20;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 3px;
+    min-width: 150px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  #exportMenu.open { display: block; }
+  #exportMenu { min-width: 250px; }
+  #exportMenu .exHead {
+    padding: 5px 10px 3px; color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.05em; cursor: default; border-top: 1px solid var(--border);
+  }
+  #exportMenu .exHead:first-child { border-top: none; }
+  #exportMenu label {
+    display: flex; align-items: center; gap: 6px; padding: 3px 10px; cursor: pointer; white-space: nowrap;
+  }
+  #exportMenu label:hover { background: #2d2d2d; }
+  #exportMenu label.off { opacity: 0.4; cursor: default; }
+  #exportMenu label.off:hover { background: transparent; }
+  #exportMenu label input[type=number] {
+    width: 72px; background: #1e1e1e; color: var(--text); border: 1px solid var(--border);
+    border-radius: 2px; padding: 1px 4px; font-family: inherit; font-size: 11px;
+  }
+  #exportMenu .exNote { margin-left: auto; color: var(--muted); font-size: 11px; }
+  #exportMenu .fmt { padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+  #exportMenu .fmt:hover { background: #3d3d3d; }
+  #exportMenu .exFoot {
+    padding: 5px 10px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--border);
+    cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #selInfo { color: var(--accent); white-space: nowrap; }
+
+  #main { flex: 1; display: flex; min-height: 0; }
+
+  #sidebar {
+    width: 360px; flex-shrink: 0; background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  #resizer {
+    width: 5px; flex-shrink: 0; cursor: col-resize; background: var(--border);
+  }
+  #resizer:hover, #resizer.dragging { background: var(--accent); }
+  #sidebarHead { padding: 8px 8px 0; flex-shrink: 0; }
+  #taskList { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 0 8px 8px; }
+  #sidebar h3 {
+    margin: 4px 0 8px; font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  #listCount { color: var(--muted); font-weight: normal; text-transform: none; letter-spacing: 0; }
+  .sidebarActions { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  .sidebarActions button {
+    background: #333; color: var(--text); border: 1px solid var(--border);
+    padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; font-family: inherit;
+  }
+  .sidebarActions button:hover:not(:disabled) { background: #3d3d3d; }
+  .sidebarActions button:disabled { opacity: 0.4; cursor: default; }
+  #modSortBtn { min-width: 34px; }
+  #modFilter {
+    flex: 1; min-width: 60px; background: #1e1e1e; color: var(--text); border: 1px solid var(--border);
+    padding: 2px 6px; border-radius: 3px; font-family: inherit; font-size: 11px;
+  }
+
+  .taskRow { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 3px; }
+  .taskRow:hover { background: #2d2d2d; }
+  .taskRow input[type=checkbox] { flex-shrink: 0; margin: 0; }
+  .taskRow .swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .taskRow label.taskName {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+  }
+  .taskRow .count { color: var(--muted); font-size: 11px; flex-shrink: 0; min-width: 30px; text-align: right; }
+  .taskRow .count.zero { opacity: 0.35; }
+  .taskRow select {
+    font-family: inherit; font-size: 11px; padding: 1px 2px; background: #1e1e1e;
+    color: var(--text); border: 1px solid var(--border); border-radius: 2px;
+    flex-shrink: 0; width: 58px;
+  }
+  .taskRow .noLvl {
+    width: 58px; flex-shrink: 0; text-align: center; color: var(--muted); opacity: 0.35; font-size: 11px;
+  }
+  .taskRow.pending select { opacity: 0.5; font-style: italic; }
+  .lvl-none { color: #6b6b6b; }
+  .lvl-err { color: var(--err); }
+  .lvl-wrn { color: var(--wrn); }
+  .lvl-inf { color: var(--inf); }
+  .lvl-dbg { color: var(--accent); }
+  .levelBtns { display: flex; gap: 2px; flex-shrink: 0; }
+  .levelBtn {
+    width: 20px; height: 16px; font-size: 10px; line-height: 16px; text-align: center;
+    border-radius: 2px; cursor: pointer; user-select: none; border: 1px solid transparent; opacity: 0.35;
+  }
+  .levelBtn.on { opacity: 1; border-color: rgba(255,255,255,0.25); }
+  .levelBtn.inf { background: rgba(106,153,85,0.3); color: var(--inf); }
+  .levelBtn.wrn { background: rgba(220,182,122,0.3); color: var(--wrn); }
+  .levelBtn.err { background: rgba(241,76,76,0.3); color: var(--err); }
+
+  #logContainer { flex: 1; overflow-y: auto; overflow-x: auto; position: relative; background: var(--bg); }
+  #logSpacer { position: relative; width: 100%; }
+  #logRows { position: absolute; top: 0; left: 0; right: 0; }
+  .logRow { white-space: pre; padding: 0 8px; height: 18px; line-height: 18px; }
+  .logRow.alt { background: var(--row-alt); }
+  .logRow .ts { color: var(--muted); }
+  .logRow .lvl { font-weight: bold; padding: 0 2px; }
+  .logRow .lvl.inf { color: var(--inf); }
+  .logRow .lvl.wrn { color: var(--wrn); }
+  .logRow .lvl.err { color: var(--err); }
+  .logRow.wrnrow { background: rgba(220,182,122,0.08); }
+  .logRow.errrow { background: rgba(241,76,76,0.08); }
+  .logRow.rawrow { color: #9aa7b0; }
+  .logRow.txrow { background: rgba(55,148,255,0.10); color: #9dc7ff; }
+  .logRow.sysrow { color: #b48ead; font-style: italic; }
+  .logRow.sel, .logRow.sel.alt, .logRow.sel.errrow, .logRow.sel.wrnrow {
+    background: rgba(55,148,255,0.22); box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .logRow .msg b { font-weight: bold; }
+
+  #txbar { display: none; border-top: 1px solid var(--border); }
+  #txbar.show { display: flex; }
+  #txInput { font-family: inherit; }
+
+  #pauseBtn.paused { background: #5a4a1e; border-color: #8a7330; color: #ffe9a8; }
+
+  #emptyState {
+    display: flex; align-items: center; justify-content: center; height: 100%;
+    color: var(--muted); flex-direction: column; gap: 10px; text-align: center;
+  }
+  #emptyState button {
+    background: var(--accent); color: #fff; border: none; padding: 8px 16px;
+    border-radius: 4px; cursor: pointer; font-size: 13px; font-family: inherit;
+  }
+  #emptyState .hint { font-size: 11px; max-width: 460px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Serial bar -->
+  <div class="bar" id="serialbar">
+    <span id="dot"></span>
+    <button id="connectBtn">Connect serial…</button>
+    <span id="portLabel">not connected</span>
+    <span class="sep"></span>
+    <label class="inline">Baud
+      <select id="baud">
+        <option>9600</option><option>19200</option><option>38400</option><option>57600</option>
+        <option selected>115200</option><option>230400</option><option>460800</option>
+        <option>921600</option><option>1000000</option><option>2000000</option><option>3000000</option>
+      </select>
+    </label>
+    <label class="inline">Data
+      <select id="dataBits"><option>7</option><option selected>8</option></select>
+    </label>
+    <label class="inline">Parity
+      <select id="parity">
+        <option value="none" selected>none</option><option value="even">even</option><option value="odd">odd</option>
+      </select>
+    </label>
+    <label class="inline">Stop
+      <select id="stopBits"><option selected>1</option><option>2</option></select>
+    </label>
+    <label class="inline">Flow
+      <select id="flowControl">
+        <option value="none" selected>none</option><option value="hardware">RTS/CTS</option>
+      </select>
+    </label>
+    <span class="sep"></span>
+    <button id="logFileBtn">Log to file…</button>
+    <span id="logFileLabel">memory only</span>
+    <button id="flushBtn" disabled title="Commit buffered bytes to disk now">Flush</button>
+  </div>
+
+  <!-- View bar -->
+  <div class="bar" id="topbar">
+    <button id="openBtn">Open log file…</button>
+    <input type="file" id="fileInput" accept=".log,.txt" style="display:none">
+    <input type="text" id="searchBox" placeholder="Filter text (message contains…)">
+    <button id="pauseBtn" title="Freeze the view; data keeps buffering (Space)">Pause</button>
+    <label class="inline" title="Stick to the newest line"><input type="checkbox" id="followChk" checked> Follow</label>
+    <label class="inline" title="Show lines that don't match the log format as their own (raw) entries"><input type="checkbox" id="rawChk" checked> Raw</label>
+    <label class="inline" title="Use the colours the device sends (ANSI/VT escape codes) to colour the message text"><input type="checkbox" id="ansiChk" checked> ANSI</label>
+    <label class="inline" title="Oldest lines are dropped beyond this. 0 = unlimited">Max
+      <input type="number" id="maxLines" value="500000" min="0" step="50000" style="width:90px">
+    </label>
+    <button id="clearBtn" title="Clear the buffer (does not touch the log file)">Clear</button>
+    <span class="sep"></span>
+    <span id="stats"></span>
+    <span id="dropped"></span>
+    <span id="selInfo"></span>
+    <span id="exportWrap">
+      <button id="exportBtn" disabled title="Export the currently filtered lines">Export ▾</button>
+      <div id="exportMenu">
+        <div class="exHead">Which lines</div>
+        <label><input type="radio" name="exRange" value="all" checked> All shown<span class="exNote" id="exAllN"></span></label>
+        <label id="exSelLbl" class="off"><input type="radio" name="exRange" value="sel" disabled> Selection<span class="exNote" id="exSelN">click a row, shift-click another</span></label>
+        <label><input type="radio" name="exRange" value="first"> First <input type="number" id="exFirstN" min="1" value="1000"> lines</label>
+        <label><input type="radio" name="exRange" value="last"> Last <input type="number" id="exLastN" min="1" value="1000"> lines</label>
+        <label><input type="radio" name="exRange" value="span"> Lines <input type="number" id="exFrom" min="1" value="1"> – <input type="number" id="exTo" min="1" value="1000"></label>
+        <div class="exHead">Save as</div>
+        <div class="fmt" data-fmt="log">Log (.log)</div>
+        <div class="fmt" data-fmt="txt">Plain text (.txt)</div>
+        <div class="fmt" data-fmt="csv">CSV (.csv)</div>
+        <div class="fmt" data-fmt="json">JSON (.json)</div>
+        <div class="exFoot" id="exSummary"></div>
+      </div>
+    </span>
+  </div>
+
+  <div id="banner"></div>
+
+  <div id="main">
+    <div id="sidebar">
+      <div id="sidebarHead">
+        <h3>Tasks &amp; log modules <span id="listCount"></span></h3>
+        <div class="sidebarActions">
+          <button id="allTasksBtn" title="Show every source in the log view">All</button>
+          <button id="noneTasksBtn" title="Hide every source">None</button>
+          <button id="allLevelsBtn">All levels</button>
+          <button id="errOnlyBtn">Errors+Warn only</button>
+        </div>
+        <div class="sidebarActions">
+          <button id="logStatusBtn" disabled title="Send &quot;log status&quot; and read the module table">Read log status</button>
+          <button id="modSortBtn" title="Sort by message count / by name">↓#</button>
+          <input type="text" id="modFilter" placeholder="filter…">
+        </div>
+      </div>
+      <div id="taskList"></div>
+    </div>
+    <div id="resizer" title="Drag to resize"></div>
+    <div id="logContainer">
+      <div id="emptyState">
+        <div>No log loaded yet.</div>
+        <button id="openBtn2">Open log file…</button>
+        <div class="hint">…or drag &amp; drop a .log file anywhere on this page,<br>
+          or hit <b>Connect serial…</b> to read a COM port live.</div>
+        <div class="hint" id="serialSupport"></div>
+      </div>
+      <div id="logSpacer" style="display:none">
+        <div id="logRows"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TX bar -->
+  <div class="bar" id="txbar">
+    <span style="color:var(--muted);font-size:12px">TX</span>
+    <input type="text" id="txInput" placeholder="Type a command and press Enter (↑/↓ for history)">
+    <label class="inline">Ending
+      <select id="txEnding">
+        <option value="crlf" selected>CR+LF</option>
+        <option value="cr">CR</option>
+        <option value="lf">LF</option>
+        <option value="none">none</option>
+      </select>
+    </label>
+    <button id="sendBtn">Send</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const LINE_RE = /^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2},\d{6}Z)\]\s*<(\w+)>\s*([^:]+):\s?(.*)$/;
+  const ROW_H = 18;
+  const LEVELS = ['inf', 'wrn', 'err'];
+  const T_RAW = '(raw)', T_TX = '(tx)', T_SYS = '(system)';
+
+  // ---------- state ----------
+  let entries = [];        // {ts, level, rawLevel, task, msg, kind}
+  let taskState = {};
+  let taskOrder = [];
+  let filtered = [];       // indices into entries
+  let searchTerm = '';
+  let loadedName = 'log';
+  let sourceText = null;   // original text of a loaded file, for re-parse on Raw toggle
+  let droppedCount = 0;
+  let paused = false;
+  let follow = true;
+  let rawPassthrough = true;
+  let ansiColors = true;
+  let maxLines = 500000;
+
+  // serial
+  let port = null, reader = null, writer = null, keepReading = false;
+  let lineBuf = '';
+  let decoder = new TextDecoder('utf-8', { fatal: false });
+
+  // disk logging
+  let fileHandle = null, writable = null, diskBytes = 0, diskQueue = [], flushing = false;
+  let lastCheckpoint = 0;
+  const CHECKPOINT_MS = 5 * 60 * 1000;
+
+  // tx history
+  let history = [], histIdx = -1;
+
+  // selection over the filtered view (row numbers, 0-based, inclusive)
+  let selA = null, selB = null;
+
+  // render scheduling
+  let needsRender = false, needsTaskList = false, needsStats = false;
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- helpers ----------
+  const taskColors = {};
+  function colorForTask(task) {
+    if (taskColors[task]) return taskColors[task];
+    let c;
+    if (task === T_TX) c = '#9dc7ff';
+    else if (task === T_SYS) c = '#b48ead';
+    else if (task === T_RAW) c = '#9aa7b0';
+    else {
+      let h = 0;
+      for (let i = 0; i < task.length; i++) h = (h * 31 + task.charCodeAt(i)) >>> 0;
+      c = `hsl(${h % 360}, 65%, 62%)`;
+    }
+    taskColors[task] = c;
+    return c;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function nowTs() {
+    const s = new Date().toISOString();          // 2026-09-11T12:34:56.789Z
+    return s.slice(0, 19) + ',' + s.slice(20, 23) + '000Z';
+  }
+
+  function showBanner(msg, kind) {
+    const b = $('banner');
+    b.textContent = msg;
+    b.className = 'show' + (kind === 'info' ? ' info' : '');
+  }
+  function hideBanner() { $('banner').className = ''; }
+
+  // ---------- ANSI / VT line emulator ----------
+  // Zephyr's shell prints its prompt, then erases it with CSI nD + CSI J before
+  // emitting a log line. Replaying those sequences is what turns the raw soup
+  // into a clean, parseable line — exactly what Tera Term is doing for you.
+  const NEEDS_EMU = /[\x1b\x08\r]/;
+  const PAL_N = ['#5a5a5a', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#d4d4d4'];
+  const PAL_B = ['#7f7f7f', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#ffffff'];
+
+  function hex2(n) { return Math.max(0, Math.min(255, n | 0)).toString(16).padStart(2, '0'); }
+  function rgbHex(r, g, b) { return '#' + hex2(r) + hex2(g) + hex2(b); }
+
+  function xterm256(n) {
+    if (n < 8) return PAL_N[n];
+    if (n < 16) return PAL_B[n - 8];
+    if (n < 232) {
+      n -= 16;
+      const lv = [0, 95, 135, 175, 215, 255];
+      return rgbHex(lv[Math.floor(n / 36) % 6], lv[Math.floor(n / 6) % 6], lv[n % 6]);
+    }
+    const g = 8 + (n - 232) * 10;
+    return rgbHex(g, g, g);
+  }
+
+  function applySgr(params, st) {
+    if (!params.length) params = [0];
+    for (let i = 0; i < params.length; i++) {
+      const p = params[i];
+      if (p === 0) { st.idx = null; st.rgb = null; st.bright = false; st.bold = false; }
+      else if (p === 1) st.bold = true;
+      else if (p === 22) st.bold = false;
+      else if (p >= 30 && p <= 37) { st.idx = p - 30; st.bright = false; st.rgb = null; }
+      else if (p >= 90 && p <= 97) { st.idx = p - 90; st.bright = true; st.rgb = null; }
+      else if (p === 39) { st.idx = null; st.rgb = null; }
+      else if (p === 38) {
+        if (params[i + 1] === 5) { st.rgb = xterm256(params[i + 2] || 0); st.idx = null; i += 2; }
+        else if (params[i + 1] === 2) { st.rgb = rgbHex(params[i + 2], params[i + 3], params[i + 4]); st.idx = null; i += 4; }
+      }
+      // background and the remaining attributes are deliberately ignored
+    }
+  }
+
+  function keyOf(st) {
+    let c = '';
+    if (st.rgb) c = st.rgb;
+    else if (st.idx != null) c = (st.bright || st.bold) ? PAL_B[st.idx] : PAL_N[st.idx];
+    if (!c && !st.bold) return '';
+    return c + '|' + (st.bold ? '1' : '');
+  }
+
+  function styleAttr(key) {
+    const i = key.indexOf('|');
+    const c = key.slice(0, i), b = key.slice(i + 1);
+    return (c ? 'color:' + c + ';' : '') + (b ? 'font-weight:bold' : '');
+  }
+
+  // Replay one line's worth of terminal output. Returns { text, spans }.
+  function emulate(input) {
+    const chars = [], keys = [];
+    const st = { idx: null, rgb: null, bright: false, bold: false };
+    let key = '', cursor = 0;
+
+    function put(ch) {
+      while (chars.length < cursor) { chars.push(' '); keys.push(''); }
+      chars[cursor] = ch; keys[cursor] = key; cursor++;
+    }
+
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+      if (ch === '\x1b') {
+        const nxt = input[i + 1];
+        if (nxt === '[') {
+          let j = i + 2;
+          while (j < input.length && input.charCodeAt(j) >= 0x30 && input.charCodeAt(j) <= 0x3f) j++;
+          while (j < input.length && input.charCodeAt(j) >= 0x20 && input.charCodeAt(j) <= 0x2f) j++;
+          const final = input[j];
+          const ps = input.slice(i + 2, j);
+          const params = ps.length ? ps.split(';').map(x => x === '' ? 0 : (parseInt(x, 10) || 0)) : [];
+          const n = params.length ? params[0] : 0;
+          switch (final) {
+            case 'm': applySgr(params, st); key = keyOf(st); break;
+            case 'D': cursor = Math.max(0, cursor - (n || 1)); break;
+            case 'C': cursor = cursor + (n || 1); break;
+            case 'G': cursor = Math.max(0, (n || 1) - 1); break;
+            case 'H': case 'f': cursor = Math.max(0, (params[1] || 1) - 1); break;
+            case 'K': case 'J':
+              if (n === 1) { for (let k = 0; k < Math.min(cursor, chars.length); k++) { chars[k] = ' '; keys[k] = ''; } }
+              else if (n === 2 || n === 3) { chars.length = 0; keys.length = 0; cursor = 0; }
+              else if (cursor < chars.length) { chars.length = cursor; keys.length = cursor; }
+              break;
+            case 'P': { const c = n || 1; chars.splice(cursor, c); keys.splice(cursor, c); break; }
+            case '@': { const c = n || 1; for (let k = 0; k < c; k++) { chars.splice(cursor, 0, ' '); keys.splice(cursor, 0, ''); } break; }
+            default: break;   // cursor up/down, modes, queries: not meaningful line-by-line
+          }
+          i = (final === undefined) ? input.length : j;
+          continue;
+        }
+        if (nxt === ']') {            // OSC (window title etc.) — swallow it
+          let j = i + 2;
+          while (j < input.length && input[j] !== '\x07' && !(input[j] === '\x1b' && input[j + 1] === '\\')) j++;
+          i = (input[j] === '\x1b') ? j + 1 : j;
+          continue;
+        }
+        i++;                          // two-character escape
+        continue;
+      }
+      if (ch === '\r') { cursor = 0; continue; }
+      if (ch === '\b') { if (cursor > 0) cursor--; continue; }
+      if (ch === '\t') { const n = 8 - (cursor % 8); for (let k = 0; k < n; k++) put(' '); continue; }
+      const code = input.charCodeAt(i);
+      if (code < 0x20 || code === 0x7f) continue;
+      put(ch);
+    }
+
+    // trim trailing blanks
+    let end = chars.length;
+    while (end > 0 && (chars[end - 1] === ' ' || chars[end - 1] === undefined)) end--;
+
+    const spans = [];
+    let s = 0;
+    for (let i = 1; i <= end; i++) {
+      if (i === end || keys[i] !== keys[s]) {
+        if (keys[s]) spans.push({ s: s, e: i, k: keys[s] });
+        s = i;
+      }
+    }
+    let text = '';
+    for (let i = 0; i < end; i++) text += (chars[i] === undefined ? ' ' : chars[i]);
+    return { text: text, spans: spans };
+  }
+
+  // Restrict spans to [off, off+len) and rebase to 0.
+  function sliceSpans(spans, off, len) {
+    const out = [];
+    for (const sp of spans) {
+      const a = Math.max(0, sp.s - off), b = Math.min(len, sp.e - off);
+      if (b > a) out.push({ s: a, e: b, k: sp.k });
+    }
+    return out;
+  }
+
+  // Attach colouring to an entry as compactly as possible: one uniform colour
+  // is by far the common case, so it costs a single interned string.
+  function attachColor(e, spans, off) {
+    if (!spans || !spans.length) return;
+    const sl = sliceSpans(spans, off, e.msg.length);
+    if (!sl.length) return;
+    if (sl.length === 1 && sl[0].s === 0 && sl[0].e === e.msg.length) e.ck = sl[0].k;
+    else e.spans = sl;
+  }
+
+  // ---------- Zephyr log modules ----------
+  // `log status` prints a fixed-width table:  <name padded to 40> | current | built-in
+  const LOG_LEVELS = ['none', 'err', 'wrn', 'inf', 'dbg'];
+  const MODROW_RE = /^([A-Za-z_][A-Za-z0-9_.\-\/]*)\s*\|\s*(none|err|wrn|inf|dbg)\s*\|\s*(none|err|wrn|inf|dbg)\s*$/;
+  const MODHDR_RE = /\|\s*current\s*\|\s*built-?\s?in/i;
+  const DASHES_RE = /^[-=]{6,}$/;
+
+  let modules = {};          // name -> {cur, built, pending}
+  let moduleOrder = [];
+  let modFilterTerm = '';
+  let modSort = 'count';     // 'count' | 'name'
+  let modDirty = false;      // a counted module gained messages since the last render
+  let lastModRender = 0;
+  let tableCtx = 0;          // last time we saw something table-shaped
+  let statusSeen = 0, statusTimer = null, refreshTimer = null;
+
+  function recordModule(name, cur, built) {
+    let m = modules[name];
+    if (!m) { m = modules[name] = {}; moduleOrder.push(name); }
+    m.cur = cur; m.built = built; m.pending = false;
+    // Give a module that hasn't logged yet a row of its own, with working
+    // view-filter controls ready for when it does.
+    if (!taskState[name]) { taskState[name] = blankTask(); taskOrder.push(name); }
+    tableCtx = Date.now();
+    statusSeen++;
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => {
+      sysLine('log status: read ' + statusSeen + ' module' + (statusSeen === 1 ? '' : 's')
+        + ' (' + moduleOrder.length + ' known)');
+      statusSeen = 0;
+      renderTaskList();
+    }, 700);
+  }
+
+  // A module's name is exactly the task name in its log lines, so one row can
+  // carry both the view filter and the device's log level.
+  function modCount(name) {
+    const st = taskState[name];
+    return st ? st.count : 0;
+  }
+
+  function listHasFocus() {
+    const list = $('taskList');
+    return !!(document.activeElement && list.contains(document.activeElement));
+  }
+
+  // While the pointer is in the list (or a <select> is open) the order is held
+  // still, so a row never slides out from under the cursor mid-click.
+  let listHover = false;
+  let lastOrder = null;
+
+  function orderedTasks() {
+    if ((listHover || listHasFocus()) && lastOrder) {
+      const seen = new Set(lastOrder);
+      return lastOrder.concat(taskOrder.filter(t => !seen.has(t)));
+    }
+    const list = taskOrder.slice();
+    if (modSort === 'name') {
+      list.sort((a, b) => a.localeCompare(b));
+    } else {
+      list.sort((a, b) => {
+        const d = modCount(b) - modCount(a);
+        return d !== 0 ? d : a.localeCompare(b);
+      });
+    }
+    lastOrder = list;
+    return list;
+  }
+
+  function setModuleLevel(name, lvl) {
+    if (!writer) return;
+    modules[name].pending = true;
+    renderTaskList();
+    sendCommand('log enable ' + lvl + ' ' + name, false);
+    // Re-read once the dust settles, so the panel shows what the device actually did.
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => requestLogStatus(true), 800);
+  }
+
+  function requestLogStatus(silent) {
+    if (!writer) { showBanner('Connect to the device first — "log status" needs an open port.'); return; }
+    tableCtx = Date.now();
+    sendCommand('log status', !silent);
+  }
+
+  // ---------- parsing ----------
+  function blankTask() {
+    return { enabled: true, inf: true, wrn: true, err: true, count: 0, infC: 0, wrnC: 0, errC: 0 };
+  }
+
+  function matches(e) {
+    const st = taskState[e.task];
+    if (!st || !st.enabled) return false;
+    if (!st[e.level]) return false;
+    if (searchTerm) {
+      const t = searchTerm;
+      if (e.msg.toLowerCase().indexOf(t) === -1 && e.task.toLowerCase().indexOf(t) === -1) return false;
+    }
+    return true;
+  }
+
+  function pushEntry(e) {
+    entries.push(e);
+    let st = taskState[e.task];
+    if (!st) {
+      st = blankTask();
+      taskState[e.task] = st;
+      taskOrder.push(e.task);
+      needsTaskList = true;
+    }
+    st.count++;
+    st[e.level + 'C']++;
+    modDirty = true;
+    if (matches(e)) filtered.push(entries.length - 1);
+    needsStats = true;
+    needsRender = true;
+  }
+
+  // Feed one raw line through the parser. Returns nothing.
+  let continuation = null;   // last parsed entry, for folding when rawPassthrough is off
+  function feedLine(raw) {
+    let line = raw, spans = null;
+    if (NEEDS_EMU.test(raw)) { const r = emulate(raw); line = r.text; spans = r.spans; }
+    line = line.replace(/\s+$/, '');
+
+    // Swallow the `log status` table — it belongs in the Modules panel, not the log.
+    const mod = MODROW_RE.exec(line);
+    if (mod) { recordModule(mod[1], mod[2], mod[3]); return; }
+    if (MODHDR_RE.test(line)) { tableCtx = Date.now(); return; }
+    if (DASHES_RE.test(line) && Date.now() - tableCtx < 3000) return;
+
+    const m = LINE_RE.exec(line);
+    if (m) {
+      const level = m[2].toLowerCase();
+      const e = {
+        ts: m[1], level: LEVELS.indexOf(level) === -1 ? 'inf' : level,
+        rawLevel: m[2], task: m[3].trim(), msg: m[4], kind: 'log'
+      };
+      attachColor(e, spans, line.length - m[4].length);
+      pushEntry(e);
+      continuation = e;
+      return;
+    }
+    if (!line.trim().length) return;
+    if (rawPassthrough) {
+      const e = { ts: nowTs(), level: 'inf', rawLevel: 'RAW', task: T_RAW, msg: line, kind: 'raw' };
+      attachColor(e, spans, 0);
+      pushEntry(e);
+    } else if (continuation) {
+      continuation.msg += ' ' + line.trim();
+      continuation.ck = undefined; continuation.spans = undefined;
+      needsRender = true;
+    } else {
+      const e = { ts: nowTs(), level: 'inf', rawLevel: 'RAW', task: T_RAW, msg: line, kind: 'raw' };
+      attachColor(e, spans, 0);
+      pushEntry(e);
+    }
+  }
+
+  function sysLine(msg, level) {
+    pushEntry({ ts: nowTs(), level: level || 'inf', rawLevel: 'SYS', task: T_SYS, msg: msg, kind: 'sys' });
+  }
+
+  function resetBuffer() {
+    entries = []; taskState = {}; taskOrder = []; filtered = [];
+    droppedCount = 0; continuation = null;
+    needsTaskList = true; needsStats = true; needsRender = true;
+  }
+
+  function parseText(text) {
+    resetBuffer();
+    const lines = text.split(/\r?\n/);
+    for (const raw of lines) feedLine(raw);
+    taskOrder.sort((a, b) => taskState[b].count - taskState[a].count);
+    needsTaskList = true;
+  }
+
+  // ---------- filtering / trimming ----------
+  function applyFilters() {
+    // Row numbers are positions in `filtered`, so any refilter invalidates them.
+    if (selA != null) { selA = selB = null; $('selInfo').textContent = ''; }
+    const term = searchTerm;
+    filtered = [];
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      const st = taskState[e.task];
+      if (!st || !st.enabled) continue;
+      if (!st[e.level]) continue;
+      if (term && e.msg.toLowerCase().indexOf(term) === -1 && e.task.toLowerCase().indexOf(term) === -1) continue;
+      filtered.push(i);
+    }
+    needsStats = true;
+    needsRender = true;
+    updateSelUI();
+    renderNow();
+  }
+
+  function trimIfNeeded() {
+    if (!maxLines || entries.length <= maxLines) return;
+    const drop = Math.max(entries.length - maxLines, Math.floor(maxLines * 0.1) || 1);
+    for (let i = 0; i < drop; i++) {
+      const e = entries[i];
+      const st = taskState[e.task];
+      if (st) { st.count--; st[e.level + 'C']--; }
+    }
+    entries = entries.slice(drop);
+    droppedCount += drop;
+    modDirty = true;
+    if (continuation && entries.indexOf(continuation) === -1) continuation = null;
+    needsTaskList = true;
+    applyFilters();
+  }
+
+  // ---------- rendering ----------
+  function updateStats() {
+    $('stats').textContent =
+      filtered.length.toLocaleString() + ' / ' + entries.length.toLocaleString() + ' lines';
+    $('dropped').textContent = droppedCount ? ('(' + droppedCount.toLocaleString() + ' dropped)') : '';
+    updateExportUI();
+    if (entries.length) {
+      $('emptyState').style.display = 'none';
+      $('logSpacer').style.display = 'block';
+    }
+  }
+
+  function renderTaskList() {
+    const list = $('taskList');
+    const keepScroll = list.scrollTop;
+    list.innerHTML = '';
+    const f = modFilterTerm;
+    const anyModules = moduleOrder.length > 0;
+    let shown = 0;
+
+    for (const task of orderedTasks()) {
+      const st = taskState[task];
+      if (!st) continue;
+      if (f && task.toLowerCase().indexOf(f) === -1) continue;
+      shown++;
+      const mod = modules[task];
+
+      const row = document.createElement('div');
+      row.className = 'taskRow' + (mod && mod.pending ? ' pending' : '');
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = st.enabled;
+      cb.title = 'Show this source in the log view';
+      cb.addEventListener('change', () => { st.enabled = cb.checked; applyFilters(); });
+
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = colorForTask(task);
+
+      const label = document.createElement('label');
+      label.className = 'taskName';
+      label.textContent = task;
+      label.title = task
+        + '\n' + st.count.toLocaleString() + ' message' + (st.count === 1 ? '' : 's') + ' in the buffer'
+        + (mod ? ('\nlog level: ' + mod.cur + '   (built-in: ' + mod.built + ')') : '');
+      label.addEventListener('click', () => {
+        cb.checked = !cb.checked; st.enabled = cb.checked; applyFilters();
+      });
+
+      const count = document.createElement('span');
+      count.className = 'count' + (st.count ? '' : ' zero');
+      count.textContent = st.count.toLocaleString();
+
+      const levelBtns = document.createElement('div');
+      levelBtns.className = 'levelBtns';
+      for (const lvl of LEVELS) {
+        const b = document.createElement('div');
+        b.className = 'levelBtn ' + lvl + (st[lvl] ? ' on' : '');
+        b.textContent = lvl.charAt(0).toUpperCase();
+        b.title = 'View filter: ' + lvl + ' (' + st[lvl + 'C'] + ' in buffer)';
+        b.addEventListener('click', () => {
+          st[lvl] = !st[lvl];
+          b.classList.toggle('on', st[lvl]);
+          applyFilters();
+        });
+        levelBtns.appendChild(b);
+      }
+
+      row.appendChild(cb);
+      row.appendChild(swatch);
+      row.appendChild(label);
+      row.appendChild(count);
+      row.appendChild(levelBtns);
+
+      if (mod) {
+        const sel = document.createElement('select');
+        sel.className = 'lvl-' + mod.cur;
+        const builtIdx = LOG_LEVELS.indexOf(mod.built);
+        for (const lv of LOG_LEVELS) {
+          const o = document.createElement('option');
+          o.value = lv;
+          o.textContent = lv;
+          if (lv === mod.cur) o.selected = true;
+          if (builtIdx >= 0 && LOG_LEVELS.indexOf(lv) > builtIdx) {
+            o.disabled = true;
+            o.textContent = lv + ' — not built in';
+          }
+          sel.appendChild(o);
+        }
+        sel.disabled = !writer;
+        sel.title = writer
+          ? ('Device log level — sends "log enable <level> ' + task + '"')
+          : 'Connect to the device to change log levels';
+        sel.addEventListener('change', () => setModuleLevel(task, sel.value));
+        row.appendChild(sel);
+      } else if (anyModules) {
+        const ph = document.createElement('span');
+        ph.className = 'noLvl';
+        ph.textContent = '–';
+        ph.title = 'Not a Zephyr log module (or not in the last "log status")';
+        row.appendChild(ph);
+      }
+
+      list.appendChild(row);
+    }
+
+    list.scrollTop = keepScroll;
+    const total = taskOrder.length;
+    $('listCount').textContent = total
+      ? '(' + (f ? shown + '/' : '') + total + (anyModules ? ', ' + moduleOrder.length + ' modules' : '') + ')'
+      : '';
+    $('logStatusBtn').disabled = !writer;
+    modDirty = false;
+    lastModRender = Date.now();
+  }
+
+  function msgHtml(e) {
+    if (!ansiColors) return escapeHtml(e.msg);
+    if (e.spans) {
+      let out = '', at = 0;
+      for (const sp of e.spans) {
+        if (sp.s > at) out += escapeHtml(e.msg.slice(at, sp.s));
+        out += `<span style="${styleAttr(sp.k)}">${escapeHtml(e.msg.slice(sp.s, sp.e))}</span>`;
+        at = sp.e;
+      }
+      if (at < e.msg.length) out += escapeHtml(e.msg.slice(at));
+      return out;
+    }
+    if (e.ck) return `<span style="${styleAttr(e.ck)}">${escapeHtml(e.msg)}</span>`;
+    return escapeHtml(e.msg);
+  }
+
+  function renderVisibleRows() {
+    const container = $('logContainer');
+    $('logSpacer').style.height = (filtered.length * ROW_H) + 'px';
+
+    if (follow && !paused) {
+      container.scrollTop = container.scrollHeight;
+    }
+
+    const scrollTop = container.scrollTop;
+    const viewH = container.clientHeight;
+    const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - 5);
+    const endIdx = Math.min(filtered.length, Math.ceil((scrollTop + viewH) / ROW_H) + 5);
+
+    const rowsDiv = $('logRows');
+    rowsDiv.style.transform = `translateY(${startIdx * ROW_H}px)`;
+
+    const sr = selRange();
+    const selLo = sr ? sr[0] : null, selHi = sr ? sr[1] : null;
+
+    let html = '';
+    for (let r = startIdx; r < endIdx; r++) {
+      const e = entries[filtered[r]];
+      if (!e) continue;
+      const alt = (r % 2 === 1) ? ' alt' : '';
+      let rowCls = e.level === 'err' ? ' errrow' : (e.level === 'wrn' ? ' wrnrow' : '');
+      if (e.kind === 'raw') rowCls += ' rawrow';
+      else if (e.kind === 'tx') rowCls += ' txrow';
+      else if (e.kind === 'sys') rowCls += ' sysrow';
+      if (selLo !== null && r >= selLo && r <= selHi) rowCls += ' sel';
+      const time = e.ts.split('T')[1].replace('Z', '').replace(',', '.');
+      html += `<div class="logRow${alt}${rowCls}" data-r="${r}" style="height:${ROW_H}px">`
+        + `<span class="ts">${time}</span> `
+        + `<span class="lvl ${e.level}">${e.level}</span> `
+        + `<span class="task" style="color:${colorForTask(e.task)}">${escapeHtml(e.task)}</span>: `
+        + `<span class="msg">${msgHtml(e)}</span>`
+        + `</div>`;
+    }
+    rowsDiv.innerHTML = html;
+  }
+
+  function renderNow() {
+    if (needsTaskList) { renderTaskList(); needsTaskList = false; }
+    if (needsStats) { updateStats(); needsStats = false; }
+    renderVisibleRows();
+    needsRender = false;
+  }
+
+  // ~20 Hz render tick, so a fast port doesn't thrash the DOM
+  setInterval(() => {
+    if (modDirty && Date.now() - lastModRender > 1500 && !listHasFocus()) {
+      renderTaskList();
+    }
+    trimIfNeeded();
+    if (paused) { if (needsStats) { updateStats(); needsStats = false; } return; }
+    if (needsRender || needsTaskList || needsStats) renderNow();
+  }, 50);
+
+  // ---------- disk logging ----------
+  const HAS_FS = typeof window.showSaveFilePicker === 'function';
+
+  async function chooseLogFile() {
+    if (!HAS_FS) {
+      showBanner('This browser/context has no File System Access API, so live saving to disk is off. ' +
+        'The buffer is still exportable. Serving the page from http://localhost enables it.', 'info');
+      return;
+    }
+    try {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const suggested = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_`
+        + `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}_serial.log`;
+      fileHandle = await window.showSaveFilePicker({
+        suggestedName: suggested,
+        types: [{ description: 'Log file', accept: { 'text/plain': ['.log', '.txt'] } }]
+      });
+      diskBytes = 0;
+      writable = await fileHandle.createWritable();
+      lastCheckpoint = Date.now();
+      $('logFileLabel').textContent = '→ ' + fileHandle.name;
+      $('logFileLabel').title = fileHandle.name;
+      $('flushBtn').disabled = false;
+      loadedName = fileHandle.name;
+      sysLine('logging to ' + fileHandle.name);
+    } catch (err) {
+      if (err && err.name !== 'AbortError') showBanner('Could not open log file: ' + err.message);
+    }
+  }
+
+  function queueBytes(bytes) {
+    if (!writable) return;
+    diskQueue.push(bytes);
+    if (diskQueue.length > 64) flushQueue();
+  }
+
+  async function flushQueue() {
+    if (!writable || flushing || !diskQueue.length) return;
+    flushing = true;
+    const batch = diskQueue;
+    diskQueue = [];
+    try {
+      for (const b of batch) { await writable.write(b); diskBytes += b.length; }
+    } catch (err) {
+      showBanner('Write to log file failed: ' + err.message);
+      writable = null;
+    }
+    flushing = false;
+  }
+
+  // Close + reopen commits the data to disk (Chrome only swaps the real file on close()).
+  async function checkpoint(silent) {
+    if (!writable || !fileHandle) return;
+    await flushQueue();
+    try {
+      await writable.close();
+      writable = await fileHandle.createWritable({ keepExistingData: true });
+      await writable.seek(diskBytes);
+      lastCheckpoint = Date.now();
+      if (!silent) sysLine('checkpoint: ' + diskBytes.toLocaleString() + ' bytes committed to ' + fileHandle.name);
+    } catch (err) {
+      showBanner('Checkpoint failed: ' + err.message);
+      writable = null;
+    }
+  }
+
+  setInterval(async () => {
+    await flushQueue();
+    if (writable && Date.now() - lastCheckpoint > CHECKPOINT_MS) await checkpoint(true);
+  }, 1000);
+
+  // ---------- serial ----------
+  const HAS_SERIAL = !!(navigator.serial);
+
+  function serialOptions() {
+    return {
+      baudRate: parseInt($('baud').value, 10),
+      dataBits: parseInt($('dataBits').value, 10),
+      stopBits: parseInt($('stopBits').value, 10),
+      parity: $('parity').value,
+      flowControl: $('flowControl').value,
+      bufferSize: 65536
+    };
+  }
+
+  function setConnectedUI(on, label) {
+    $('dot').className = on ? 'on' : '';
+    $('connectBtn').textContent = on ? 'Disconnect' : 'Connect serial…';
+    $('connectBtn').classList.toggle('connected', on);
+    $('portLabel').textContent = label || (on ? 'connected' : 'not connected');
+    $('txbar').classList.toggle('show', on);
+    ['baud', 'dataBits', 'parity', 'stopBits', 'flowControl'].forEach(id => { $(id).disabled = on; });
+    if (on) $('txInput').focus();
+    renderTaskList();
+  }
+
+  function portName(p) {
+    try {
+      const i = p.getInfo ? p.getInfo() : {};
+      if (i.usbVendorId != null) {
+        const hex = (n) => '0x' + n.toString(16).padStart(4, '0');
+        return `USB ${hex(i.usbVendorId)}:${hex(i.usbProductId)}`;
+      }
+    } catch (e) { /* ignore */ }
+    return 'serial port';
+  }
+
+  async function connect() {
+    if (!HAS_SERIAL) {
+      showBanner('This browser has no Web Serial API. Use Chrome or Edge on desktop (not Firefox/Safari).');
+      return;
+    }
+    try {
+      port = await navigator.serial.requestPort();
+      const opts = serialOptions();
+      await port.open(opts);
+      keepReading = true;
+      decoder = new TextDecoder('utf-8', { fatal: false });
+      lineBuf = '';
+      hideBanner();
+      setConnectedUI(true, portName(port) + ' @ ' + opts.baudRate + ' ' + opts.dataBits
+        + (opts.parity === 'none' ? 'N' : opts.parity === 'even' ? 'E' : 'O') + opts.stopBits);
+      sysLine('connected: ' + opts.baudRate + ' baud, ' + opts.dataBits + ' data, '
+        + opts.parity + ' parity, ' + opts.stopBits + ' stop, flow ' + opts.flowControl);
+      if (!writable) sysLine('not logging to disk — click "Log to file…" before connecting to keep a copy', 'wrn');
+      try { writer = port.writable.getWriter(); } catch (e) { writer = null; }
+      renderTaskList();          // the writer is what enables the module controls
+      readLoop();
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;      // user dismissed the picker
+      if (err && err.name === 'NotFoundError') return;
+      $('dot').className = 'err';
+      showBanner('Could not open port: ' + (err && err.message ? err.message : err)
+        + (String(err).indexOf('Failed to open') !== -1
+          ? ' — is Tera Term (or another program) still holding the port?' : ''));
+      port = null;
+    }
+  }
+
+  async function readLoop() {
+    while (keepReading && port && port.readable) {
+      reader = port.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value && value.length) onBytes(value);
+        }
+      } catch (err) {
+        if (keepReading) sysLine('read error: ' + (err && err.message ? err.message : err), 'err');
+      } finally {
+        try { reader.releaseLock(); } catch (e) { /* ignore */ }
+        reader = null;
+      }
+      if (!keepReading) break;
+      if (!port || !port.readable) break;
+    }
+    if (keepReading) {
+      // The port vanished under us — adapter unplugged, or the driver dropped it.
+      $('dot').className = 'err';
+      sysLine('port lost — adapter unplugged or driver reset', 'err');
+      showBanner('Serial port disappeared. The log file has been closed; reconnect when the device is back.');
+      await disconnect();
+    }
+  }
+
+  function onBytes(bytes) {
+    queueBytes(bytes);
+    const text = decoder.decode(bytes, { stream: true });
+    if (!text) return;
+    lineBuf += text;
+    let nl;
+    while ((nl = lineBuf.indexOf('\n')) !== -1) {
+      const line = lineBuf.slice(0, nl);
+      lineBuf = lineBuf.slice(nl + 1);
+      feedLine(line);
+    }
+    // Guard against a device that never sends a newline
+    if (lineBuf.length > 16384) { feedLine(lineBuf); lineBuf = ''; }
+  }
+
+  async function disconnect() {
+    keepReading = false;
+    try { if (reader) await reader.cancel(); } catch (e) { /* ignore */ }
+    try { if (writer) { writer.releaseLock(); writer = null; } } catch (e) { /* ignore */ }
+    try { if (port) await port.close(); } catch (e) { /* ignore */ }
+    if (lineBuf.trim().length) { feedLine(lineBuf); }
+    lineBuf = '';
+    port = null;
+    setConnectedUI(false);
+    sysLine('disconnected');
+    await flushQueue();
+    if (writable) {
+      try {
+        await writable.close();
+        writable = null;
+        sysLine('log file closed: ' + diskBytes.toLocaleString() + ' bytes → ' + fileHandle.name);
+        $('flushBtn').disabled = true;
+        $('logFileLabel').textContent = fileHandle.name + ' (closed)';
+      } catch (err) { showBanner('Closing the log file failed: ' + err.message); }
+    }
+  }
+
+  async function sendCommand(text, addHistory) {
+    if (addHistory === undefined) addHistory = true;
+    if (!writer) { showBanner('Not connected — nothing to send to.'); return; }
+    const endings = { none: '', cr: '\r', lf: '\n', crlf: '\r\n' };
+    const payload = text + (endings[$('txEnding').value] || '');
+    try {
+      await writer.write(new TextEncoder().encode(payload));
+      pushEntry({ ts: nowTs(), level: 'inf', rawLevel: 'TX', task: T_TX, msg: text, kind: 'tx' });
+      if (addHistory && history[history.length - 1] !== text) history.push(text);
+      histIdx = history.length;
+    } catch (err) {
+      sysLine('send failed: ' + (err && err.message ? err.message : err), 'err');
+    }
+  }
+
+  // ---------- selection ----------
+  function selRange() {
+    if (selA == null || selB == null) return null;
+    const a = Math.min(selA, selB), b = Math.max(selA, selB);
+    if (a >= filtered.length) return null;
+    return [a, Math.min(b, filtered.length - 1)];
+  }
+
+  function clearSelection() {
+    selA = selB = null;
+    updateSelUI();
+    renderVisibleRows();
+  }
+
+  function updateSelUI() {
+    const r = selRange();
+    const lbl = $('exSelLbl'), radio = lbl.querySelector('input');
+    if (r) {
+      const n = r[1] - r[0] + 1;
+      $('selInfo').textContent = 'selected ' + (r[0] + 1).toLocaleString() + '–' + (r[1] + 1).toLocaleString()
+        + ' (' + n.toLocaleString() + ')';
+      $('exSelN').textContent = 'rows ' + (r[0] + 1).toLocaleString() + '–' + (r[1] + 1).toLocaleString();
+      lbl.classList.remove('off');
+      radio.disabled = false;
+    } else {
+      $('selInfo').textContent = '';
+      $('exSelN').textContent = 'click a row, shift-click another';
+      lbl.classList.add('off');
+      radio.disabled = true;
+      if (radio.checked) { radio.checked = false; $('exportMenu').querySelector('input[value=all]').checked = true; }
+    }
+    updateExportUI();
+  }
+
+  // ---------- export ----------
+  function stamp() {
+    const d = new Date(), z = (n) => String(n).padStart(2, '0');
+    return String(d.getFullYear()).slice(2) + z(d.getMonth() + 1) + z(d.getDate())
+      + '_' + z(d.getHours()) + z(d.getMinutes()) + z(d.getSeconds());
+  }
+  function baseName() { return stamp() + '_log'; }
+  function csvCell(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }
+
+  function exMode() {
+    const r = $('exportMenu').querySelector('input[name=exRange]:checked');
+    return r ? r.value : 'all';
+  }
+
+  function intVal(id, dflt) {
+    const v = parseInt($(id).value, 10);
+    return isFinite(v) ? v : dflt;
+  }
+
+  // Which slice of the filtered view gets written. Returns [from, to] inclusive
+  // 0-based row numbers, or null when the slice is empty.
+  function exportSlice() {
+    const n = filtered.length;
+    if (!n) return null;
+    const mode = exMode();
+    if (mode === 'sel') return selRange();
+    if (mode === 'first') {
+      const k = Math.max(1, Math.min(intVal('exFirstN', 1000), n));
+      return [0, k - 1];
+    }
+    if (mode === 'last') {
+      const k = Math.max(1, Math.min(intVal('exLastN', 1000), n));
+      return [n - k, n - 1];
+    }
+    if (mode === 'span') {
+      let a = intVal('exFrom', 1) - 1, b = intVal('exTo', n) - 1;
+      if (a > b) { const t = a; a = b; b = t; }
+      a = Math.max(0, Math.min(a, n - 1));
+      b = Math.max(0, Math.min(b, n - 1));
+      return [a, b];
+    }
+    return [0, n - 1];
+  }
+
+  function exportCount() {
+    const r = exportSlice();
+    return r ? (r[1] - r[0] + 1) : 0;
+  }
+
+  function updateExportUI() {
+    const n = filtered.length;
+    $('exAllN').textContent = n.toLocaleString();
+    const c = exportCount();
+    const btn = $('exportBtn');
+    btn.disabled = c === 0;
+    btn.textContent = 'Export ' + c.toLocaleString() + ' ▾';
+    const r = exportSlice();
+    $('exSummary').textContent = r
+      ? c.toLocaleString() + ' line' + (c === 1 ? '' : 's') + ' (rows '
+        + (r[0] + 1).toLocaleString() + '–' + (r[1] + 1).toLocaleString() + ') → ' + baseName() + '.log'
+      : 'nothing to export';
+  }
+
+  function buildExport(fmt) {
+    const r = exportSlice();
+    const rows = r ? filtered.slice(r[0], r[1] + 1).map(i => entries[i]).filter(Boolean) : [];
+    if (fmt === 'log') {
+      return { name: baseName() + '.log', type: 'text/plain',
+        text: rows.map(e => `[${e.ts}] <${e.rawLevel}> ${e.task}: ${e.msg}`).join('\r\n') + '\r\n' };
+    }
+    if (fmt === 'txt') {
+      return { name: baseName() + '.txt', type: 'text/plain',
+        text: rows.map(e => {
+          const time = e.ts.split('T')[1].replace('Z', '').replace(',', '.');
+          return `${time} ${e.level} ${e.task}: ${e.msg}`;
+        }).join('\r\n') + '\r\n' };
+    }
+    if (fmt === 'csv') {
+      const head = 'timestamp,level,task,kind,message';
+      const body = rows.map(e => [e.ts, e.rawLevel, e.task, e.kind, e.msg].map(csvCell).join(','));
+      return { name: baseName() + '.csv', type: 'text/csv',
+        text: '﻿' + [head].concat(body).join('\r\n') + '\r\n' };
+    }
+    return { name: baseName() + '.json', type: 'application/json',
+      text: JSON.stringify(rows.map(e => ({
+        timestamp: e.ts, level: e.rawLevel, task: e.task, kind: e.kind, message: e.msg
+      })), null, 2) };
+  }
+
+  function exportFiltered(fmt) {
+    if (!exportCount()) return;
+    const out = buildExport(fmt);
+    const blob = new Blob([out.text], { type: out.type + ';charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = out.name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // ---------- file loading ----------
+  function loadText(text) {
+    sourceText = text;
+    parseText(text);
+    $('emptyState').style.display = 'none';
+    $('logSpacer').style.display = 'block';
+    follow = false; $('followChk').checked = false;
+    applyFilters();
+    $('logContainer').scrollTop = 0;
+  }
+
+  function loadFile(file) {
+    loadedName = file.name || 'log';
+    const reader2 = new FileReader();
+    reader2.onload = () => loadText(reader2.result);
+    reader2.readAsText(file);
+  }
+
+  // ---------- settings persistence ----------
+  const SETTINGS = ['baud', 'dataBits', 'parity', 'stopBits', 'flowControl', 'txEnding'];
+  function loadSettings() {
+    try {
+      const s = JSON.parse(localStorage.getItem('logviewer.serial') || '{}');
+      for (const id of SETTINGS) if (s[id] != null) $(id).value = s[id];
+      if (s.maxLines != null) { $('maxLines').value = s.maxLines; maxLines = parseInt(s.maxLines, 10) || 0; }
+      if (s.raw != null) { $('rawChk').checked = !!s.raw; rawPassthrough = !!s.raw; }
+      if (s.ansi != null) { $('ansiChk').checked = !!s.ansi; ansiColors = !!s.ansi; }
+      if (s.sbW) $('sidebar').style.width = Math.max(240, Math.min(760, s.sbW)) + 'px';
+      if (s.modSort === 'name' || s.modSort === 'count') {
+        modSort = s.modSort;
+        $('modSortBtn').textContent = (modSort === 'count') ? '↓#' : 'A→Z';
+      }
+    } catch (e) { /* ignore */ }
+  }
+  function saveSettings() {
+    try {
+      const s = {};
+      for (const id of SETTINGS) s[id] = $(id).value;
+      s.maxLines = $('maxLines').value;
+      s.raw = $('rawChk').checked;
+      s.ansi = $('ansiChk').checked;
+      s.modSort = modSort;
+      s.sbW = Math.round($('sidebar').getBoundingClientRect().width);
+      localStorage.setItem('logviewer.serial', JSON.stringify(s));
+    } catch (e) { /* ignore */ }
+  }
+
+  // ---------- wiring ----------
+  loadSettings();
+  SETTINGS.forEach(id => $(id).addEventListener('change', saveSettings));
+
+  if (HAS_SERIAL && navigator.serial.addEventListener) {
+    navigator.serial.addEventListener('disconnect', (e) => {
+      if (port && (!e.target || e.target === port || e.port === port)) {
+        $('dot').className = 'err';
+        sysLine('device disconnected', 'err');
+        disconnect();
+      }
+    });
+  }
+
+  $('connectBtn').addEventListener('click', () => { port ? disconnect() : connect(); });
+  $('logFileBtn').addEventListener('click', chooseLogFile);
+  $('flushBtn').addEventListener('click', () => checkpoint(false));
+
+  $('logStatusBtn').addEventListener('click', () => requestLogStatus(false));
+  $('modFilter').addEventListener('input', (e) => {
+    modFilterTerm = e.target.value.toLowerCase();
+    lastOrder = null;
+    renderTaskList();
+  });
+  $('taskList').addEventListener('mouseenter', () => { listHover = true; });
+  $('taskList').addEventListener('mouseleave', () => {
+    listHover = false;
+    // Re-sort straight away rather than waiting for the next message — on an
+    // idle device that would leave the order frozen indefinitely.
+    if (!listHasFocus()) renderTaskList();
+  });
+
+  (function () {                      // draggable sidebar width
+    const rz = $('resizer'), sb = $('sidebar');
+    let dragging = false;
+    rz.addEventListener('mousedown', (e) => {
+      dragging = true; rz.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const w = Math.max(240, Math.min(760, e.clientX - sb.getBoundingClientRect().left));
+      sb.style.width = w + 'px';
+    });
+    window.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false; rz.classList.remove('dragging');
+      document.body.style.cursor = ''; document.body.style.userSelect = '';
+      saveSettings();
+      renderVisibleRows();
+    });
+  })();
+  $('modSortBtn').addEventListener('click', () => {
+    modSort = (modSort === 'count') ? 'name' : 'count';
+    lastOrder = null;
+    $('modSortBtn').textContent = (modSort === 'count') ? '↓#' : 'A→Z';
+    $('modSortBtn').title = (modSort === 'count')
+      ? 'Sorted by message count — click for alphabetical'
+      : 'Sorted by name — click to sort by message count';
+    saveSettings();
+    renderTaskList();
+  });
+
+  $('openBtn').addEventListener('click', () => $('fileInput').click());
+  $('openBtn2').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', (e) => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+  $('searchBox').addEventListener('input', (e) => {
+    searchTerm = e.target.value.toLowerCase();
+    applyFilters();
+  });
+
+  $('pauseBtn').addEventListener('click', () => {
+    paused = !paused;
+    $('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+    $('pauseBtn').classList.toggle('paused', paused);
+    if (!paused) renderNow();
+  });
+
+  $('followChk').addEventListener('change', (e) => {
+    follow = e.target.checked;
+    if (follow) renderNow();
+  });
+
+  $('rawChk').addEventListener('change', (e) => {
+    rawPassthrough = e.target.checked;
+    saveSettings();
+    if (sourceText != null) { parseText(sourceText); applyFilters(); }
+  });
+
+  $('ansiChk').addEventListener('change', (e) => {
+    ansiColors = e.target.checked;
+    saveSettings();
+    renderNow();
+  });
+
+  $('maxLines').addEventListener('change', (e) => {
+    maxLines = parseInt(e.target.value, 10) || 0;
+    saveSettings();
+    trimIfNeeded();
+  });
+
+  $('clearBtn').addEventListener('click', () => {
+    resetBuffer(); sourceText = null;
+    modules = {}; moduleOrder = []; lastOrder = null; renderTaskList();
+    renderNow();
+  });
+
+  $('allTasksBtn').addEventListener('click', () => {
+    for (const t of taskOrder) taskState[t].enabled = true;
+    needsTaskList = true; applyFilters();
+  });
+  $('noneTasksBtn').addEventListener('click', () => {
+    for (const t of taskOrder) taskState[t].enabled = false;
+    needsTaskList = true; applyFilters();
+  });
+  $('allLevelsBtn').addEventListener('click', () => {
+    for (const t of taskOrder) { taskState[t].inf = true; taskState[t].wrn = true; taskState[t].err = true; }
+    needsTaskList = true; applyFilters();
+  });
+  $('errOnlyBtn').addEventListener('click', () => {
+    for (const t of taskOrder) { taskState[t].inf = false; taskState[t].wrn = true; taskState[t].err = true; }
+    needsTaskList = true; applyFilters();
+  });
+
+  const exportMenu = $('exportMenu');
+  $('exportBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    updateExportUI();
+    exportMenu.classList.toggle('open');
+  });
+  exportMenu.addEventListener('click', (e) => {
+    e.stopPropagation();                       // configuring must not close the popover
+    const fmt = e.target.getAttribute('data-fmt');
+    if (fmt) { exportFiltered(fmt); exportMenu.classList.remove('open'); }
+  });
+  exportMenu.addEventListener('change', updateExportUI);
+  exportMenu.addEventListener('input', (e) => {
+    // typing in a count implies you meant that mode
+    const lbl = e.target.closest('label');
+    const radio = lbl && lbl.querySelector('input[type=radio]');
+    if (radio && !radio.disabled) radio.checked = true;
+    updateExportUI();
+  });
+  document.addEventListener('click', () => exportMenu.classList.remove('open'));
+
+  // TX
+  $('sendBtn').addEventListener('click', () => {
+    const v = $('txInput').value;
+    if (v.length) { sendCommand(v); $('txInput').value = ''; }
+  });
+  $('txInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const v = e.target.value;
+      if (v.length) { sendCommand(v); e.target.value = ''; }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (histIdx > 0) { histIdx--; e.target.value = history[histIdx]; }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (histIdx < history.length - 1) { histIdx++; e.target.value = history[histIdx]; }
+      else { histIdx = history.length; e.target.value = ''; }
+    }
+  });
+
+  // A shift-click would otherwise extend the browser's *text* selection, which
+  // both looks wrong and trips the drag-to-copy guard below.
+  $('logRows').addEventListener('mousedown', (e) => { if (e.shiftKey) e.preventDefault(); });
+
+  $('logRows').addEventListener('click', (e) => {
+    // Leave drag-to-copy alone: a plain click that ends a text selection is a copy,
+    // not a row pick. Shift-clicks are always ours.
+    if (!e.shiftKey) {
+      const txt = window.getSelection && window.getSelection().toString();
+      if (txt && txt.length) return;
+    } else if (window.getSelection) {
+      window.getSelection().removeAllRanges();
+    }
+    const row = e.target.closest('.logRow');
+    if (!row) return;
+    const r = parseInt(row.getAttribute('data-r'), 10);
+    if (!isFinite(r)) return;
+    if (e.shiftKey && selA !== null) selB = r;
+    else { selA = r; selB = r; }
+    updateSelUI();
+    renderVisibleRows();
+  });
+
+  // Manual scroll disengages Follow; scrolling back to the bottom re-engages it.
+  let programmaticScroll = false;
+  $('logContainer').addEventListener('scroll', () => {
+    const c = $('logContainer');
+    if (!programmaticScroll) {
+      const atBottom = c.scrollHeight - c.scrollTop - c.clientHeight < ROW_H * 2;
+      if (follow && !atBottom) { follow = false; $('followChk').checked = false; }
+      else if (!follow && atBottom && port) { follow = true; $('followChk').checked = true; }
+    }
+    window.requestAnimationFrame(renderVisibleRows);
+  });
+  window.addEventListener('resize', () => renderVisibleRows());
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (exportMenu.classList.contains('open')) exportMenu.classList.remove('open');
+      else if (selA !== null) clearSelection();
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); exportFiltered('log'); }
+    if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+      e.preventDefault(); $('pauseBtn').click();
+    }
+  });
+
+  // Drag and drop
+  ['dragover', 'drop'].forEach(evt => window.addEventListener(evt, (e) => { e.preventDefault(); }));
+  window.addEventListener('drop', (e) => { if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); });
+
+  window.addEventListener('beforeunload', (e) => {
+    if (port || (writable && diskQueue.length)) {
+      e.preventDefault();
+      e.returnValue = 'Serial port is still open — disconnect first so the log file is closed cleanly.';
+      return e.returnValue;
+    }
+  });
+
+  // Capability notice on the empty state
+  (function () {
+    const el = $('serialSupport');
+    const notes = [];
+    if (!HAS_SERIAL) notes.push('⚠ This browser has no Web Serial API — use Chrome or Edge on desktop.');
+    if (!HAS_FS) notes.push('⚠ No File System Access API here, so live saving to disk is unavailable ' +
+      '(the Export button still works). Serving this page from http://localhost enables it.');
+    if (notes.length) el.innerHTML = notes.join('<br>');
+  })();
+
+  setConnectedUI(false);
+  updateSelUI();
+  updateStats();
+})();
+</script>
+</body>
+</html>

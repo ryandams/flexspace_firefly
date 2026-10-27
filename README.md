@@ -1,7 +1,7 @@
 # firefly Zephyr workspace
 
-Firefly is an nRF Connect SDK application for
-`nrf54lm20dk/nrf54lm20a/cpuapp`, with deterministic `native_sim` tests. The
+Firefly is an nRF Connect SDK application for the nRF54LM20 DK and the
+nRF93M1 DK, with deterministic `native_sim` tests. The
 manifest temporarily pins sdk-nrf main at commit `e8b176a4900a560d180112302fc5b48dde19bf70`
 for nRF93M1 modem support. That manifest selects sdk-zephyr
 `0e25e66118d903037be2350cccc382134b7e62ad`. The latest available Nordic
@@ -21,6 +21,7 @@ bind-mounted into the container, so sources and builds stay on ext4.
 ```bash
 ./0_docker.sh install    # once per machine: Docker Engine (sudo), then reopen WSL
 ./0_docker.sh build      # ~10 min: the image, with the NCS toolchain baked in
+./x_usb.sh setup         # once per machine: usbipd-win (admin prompt) + WSL USB (sudo)
 ./2_workspace.sh         # west init/update - clones several GB
 ```
 
@@ -42,15 +43,27 @@ clangd paths assume you are inside it. Commit and push from WSL or from the
 dev container, which forwards your git credentials; the plain script containers
 have no git credentials.
 
-**Flashing and debugging** work as before: the container shares WSL's network,
-so it reaches `JLinkRemoteServer.exe` on Windows the same way.
+**Flashing and debugging** use the DK's on-board J-Link over USB.
+[usbipd-win](https://github.com/dorssel/usbipd-win) passes it from Windows to
+WSL, and from there into the container. `./4_flash.sh`, `./5_debug.sh` and
+`./7_test.sh test-hardware` attach it themselves. The first time a DK (or
+USB port) is used, Windows asks for admin approval to share it. While
+attached, the DK and its COM port are gone from Windows; they show up in WSL
+as a USB device and `/dev/ttyACM*` instead. `./x_usb.sh detach` gives them
+back; `./x_usb.sh list` shows what is where. Replugging or power-cycling the
+DK drops the attachment; the next flash re-attaches. In the VS Code dev
+container, which cannot reach usbipd, run `./x_usb.sh attach` in a WSL
+terminal first (it also runs when the container opens). With several DKs
+attached, pick one with `PROBE_SERIAL=<serial>`.
 
-The first build after moving to the container needs `-p`: CMake caches from
-raw WSL hold the old paths.
-
-To run on raw WSL without the container, set up with
-`FIREFLY_NATIVE=1 ./0_prereqs.sh && FIREFLY_NATIVE=1 ./1_toolchain.sh` and
-prefix every script with `FIREFLY_NATIVE=1`.
+**Serial console:** while the DK is attached to WSL, its COM ports exist only
+in WSL, so a Web Serial log viewer has to run in a Linux browser here.
+`./x_serial.sh install` (once) installs Google Chrome from Google's .deb
+(Ubuntu's Chromium is a snap, which cannot open serial ports). After that,
+`./x_serial.sh` attaches the DK and opens the project's
+[log_viewer.html](log_viewer.html) as a Chrome app window (set
+`SERIAL_VIEWER_HTML` for another viewer). The window shows on the Windows
+desktop through WSLg and can stay connected while `./4_flash.sh` flashes.
 
 ### Changing toolchain versions
 
@@ -63,19 +76,12 @@ next script run. The bundle ID for a version is shown by
 
 ```bash
 ./3_build.sh app-target -p       # unsigned development target image
-./31_build.sh -p                 # nRF93M1 modem target (on-board, nrf93m1dk)
-./32_build.sh -p                 # Quectel EG800Z modem target (external, uart21)
-./33_build.sh -p                 # Fibocom LE270 modem target (external, uart21)
-./4_flash.sh                     # flash through J-Link Remote Server
-./41_flash.sh                    # flash the nRF93M1 target - matches 31_build.sh
-./42_flash.sh                    # flash the EG800Z target - matches 32_build.sh
-./43_flash.sh                    # flash the LE270 target - matches 33_build.sh
+./4_flash.sh                     # flash over USB (usbipd-win)
 ./5_debug.sh                     # interactive target debugging
-./51_debug.sh / 52 / 53          # debug the nRF93M1 / EG800Z / LE270 target
 ./6_menuconfig.sh                # configure an existing build
 ./7_test.sh                      # all automated tests + combined report
-./12_format.sh check             # verify C/C++ formatting
-./12_format.sh apply             # format C/C++ sources and tests
+./8_format.sh check              # verify C/C++ formatting
+./8_format.sh apply              # format C/C++ sources and tests
 ./7_test.sh test-native          # optional: run only native tests
 ./7_test.sh test-target-build    # compile portable suites for the DK
 ./7_test.sh test-hardware        # execute DK-only tests (connected board)
@@ -88,29 +94,28 @@ result, then use `./3_build.sh release -p`. Release mode alone enables MCUboot,
 production configuration, signing, MCUboot, and a DFU package. The ordinary target
 build does not claim to be signed.
 
-## Modem targets
+## Board and modem
 
-`31_build.sh`/`32_build.sh`/`33_build.sh` are thin wrappers around
-`3_build.sh` that fix `TARGET` (and, for the two external modems, `MODEM`)
-to one of the three modems this project supports - see `variables.sh` for
-what each variable selects and `firefly-app/README.md` for the app-side
-Kconfig/devicetree behind them. Each gets its own build directory
-(`ncsworkspace/builds/build_nrf93m1dk`, `build_eg800z`, `build_le270`), so
-switching between them never forces a pristine rebuild of another. Plain
-`3_build.sh`/`TARGET=nrf54lm20dk` with no `MODEM` set builds with no modem
-at all.
+The target hardware is chosen in `firefly-app/prj.conf`, one board and one
+modem:
 
-`41/42/43_flash.sh` and `51/52/53_debug.sh` are the matching wrappers for
-`4_flash.sh`/`5_debug.sh`. Use them, not the bare `TARGET=... MODEM=...
-./4_flash.sh` form: a numbered build script's `export` only lives inside
-that script's own process - it does **not** carry over to a separate
-`./4_flash.sh` invocation in your shell. Running `./33_build.sh` then
-plain `./4_flash.sh` silently flashes the last plain (no-modem) build
-instead of `build_le270`, with no error - the two scripts have no way to
-know a different target was just built. If you do want the bare form
-(e.g. `TARGET=nrf54lm20dk MODEM=le270 ./4_flash.sh`), export the same
-`TARGET`/`MODEM` pair to *every* script in the sequence, in the same shell
-session.
+```
+CONFIG_FIREFLY_TARGET_BOARD_NRF93M1DK=y
+CONFIG_FIREFLY_TARGET_MODEM_NRF93M1=y
+```
+
+| Board | Modems |
+|---|---|
+| `NRF93M1DK` | `NRF93M1` (on board) |
+| `NRF54LM20DK` | `NONE`, `EG800Z`, `LE270` (both uart21), `NRF93M1_EXT` (uart30) |
+
+`3_build.sh` passes the board to `west build -b`; the app's `CMakeLists.txt`
+adds the modem's `conf/modem_<x>.conf` + `boards/<x>.overlay`, and stops the
+build if the pair is invalid or doesn't match the board being built (for
+example from VS Code's nRF Connect extension). Flash, debug and the target
+test stages use the same selection. There is one build directory,
+`ncsworkspace/builds/build`; after changing the selection, `./3_build.sh`
+rebuilds it. See `firefly-app/README.md` for what each modem configures.
 
 ## Test layers
 
