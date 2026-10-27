@@ -39,7 +39,11 @@ image first. `./0_docker.sh shell` opens an interactive shell in the container.
 **VS Code:** open the folder and choose *Reopen in Container*
 (`.devcontainer/`). The dev container uses the same image and mount as the
 scripts, so builds from either are interchangeable. `launch.json` and the
-clangd paths assume you are inside it. Commit and push from WSL or from the
+clangd paths assume you are inside it. To debug without a board, pick
+*Debug firefly-app (native_sim, no board)* and press F5: it builds the app for
+native_sim (`./3_build.sh sim`), runs it on the host under gdb and stops at the
+app's `main()`. Breakpoints and single-stepping work like on the target. No
+modem is built in on native_sim, whatever `prj.conf` selects. Commit and push from WSL or from the
 dev container, which forwards your git credentials; the plain script containers
 have no git credentials.
 
@@ -76,6 +80,7 @@ next script run. The bundle ID for a version is shown by
 
 ```bash
 ./3_build.sh app-target -p       # unsigned development target image
+./3_build.sh sim                 # the app on native_sim (host, no board)
 ./4_flash.sh                     # flash over USB (usbipd-win)
 ./5_debug.sh                     # interactive target debugging
 ./6_menuconfig.sh                # configure an existing build

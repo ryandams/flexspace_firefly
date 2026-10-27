@@ -1,0 +1,19 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            // Used by the native_sim launch configuration. Run inside the dev
+            // container, so 3_build.sh builds directly instead of starting
+            // another container.
+            "label": "Build native_sim",
+            "type": "shell",
+            "command": "./3_build.sh sim",
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "build",
+            "problemMatcher": {
+                "base": "$gcc",
+                "fileLocation": "absolute"
+            }
+        }
+    ]
+}

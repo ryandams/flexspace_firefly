@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build modes: app-target (default) or release (MCUboot + signed image).
+# Build modes: app-target (default), release (MCUboot + signed image), or sim
+# (the app on native_sim, for debugging on the host without a board).
 # Board and modem: CONFIG_FIREFLY_TARGET_* in firefly-app/prj.conf.
 set -euo pipefail
 source "$(dirname "$0")/variables.sh"
@@ -8,16 +9,21 @@ mode="app-target"
 pristine="$PRISTINE"
 while [ $# -gt 0 ]; do
     case "$1" in
-        app-target|release) mode="$1" ;;
+        app-target|release|sim) mode="$1" ;;
         -p) pristine=always ;;
-        *) c_err "usage: $0 [app-target|release] [-p]"; exit 2 ;;
+        *) c_err "usage: $0 [app-target|release|sim] [-p]"; exit 2 ;;
     esac
     shift
 done
 
 [ -d "$WEST_DIR" ] || { c_err "No workspace - run ./2_workspace.sh"; exit 1; }
-require_board
-c_info "Board $BOARD_NAME (from firefly-app/prj.conf)"
+if [ "$mode" = sim ]; then
+    BOARD_NAME="$SIM_BOARD_NAME"
+    BUILD_DIR="$SIM_BUILD_DIR"
+else
+    require_board
+    c_info "Board $BOARD_NAME (from firefly-app/prj.conf)"
+fi
 drop_foreign_build_dir "$BUILD_DIR"
 
 # -DAPP_DIR=<absolute path> is belt-and-suspenders: sysbuild's top-level
@@ -42,6 +48,7 @@ cd "$WORKSPACE_DIR"
 ncs "${args[@]}"
 
 artifacts=(
+    "$BUILD_DIR/$APP_IMAGE_NAME/zephyr/zephyr.exe"
     "$BUILD_DIR/$APP_IMAGE_NAME/zephyr/zephyr.elf"
     "$BUILD_DIR/$APP_IMAGE_NAME/zephyr/zephyr.hex"
     "$BUILD_DIR/$APP_IMAGE_NAME/zephyr/zephyr.bin"

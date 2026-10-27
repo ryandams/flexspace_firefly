@@ -26,16 +26,25 @@
             "runToEntryPoint": "main"
         },
         {
-            "name": "Debug firefly-app (native_sim, no target)",
+            // F5 builds the app for native_sim (./3_build.sh sim) and runs it
+            // on the host under gdb - no board needed. It stops at the app's
+            // main(); the native simulator has a main() of its own, hence the
+            // full path.
+            "name": "Debug firefly-app (native_sim, no board)",
             "type": "cppdbg",
             "request": "launch",
+            "preLaunchTask": "Build native_sim",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb",
             "program": "${workspaceFolder}/ncsworkspace/builds/build_sim/firefly-app/zephyr/zephyr.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
-            "stopAtEntry": true,
-            "externalConsole": false
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "setupCommands": [
+                { "text": "-enable-pretty-printing", "ignoreFailures": true },
+                { "text": "-break-insert -f ${workspaceFolder}/ncsworkspace/firefly-app/code/main.c:main" }
+            ]
         }
     ]
 }
