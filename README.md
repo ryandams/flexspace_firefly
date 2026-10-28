@@ -2,10 +2,10 @@
 
 Firefly is an nRF Connect SDK application for the nRF54LM20 DK and the
 nRF93M1 DK, with deterministic `native_sim` tests. The
-manifest temporarily pins sdk-nrf main at commit `e8b176a4900a560d180112302fc5b48dde19bf70`
-for nRF93M1 modem support. That manifest selects sdk-zephyr
-`0e25e66118d903037be2350cccc382134b7e62ad`. The latest available Nordic
-toolchain remains pinned to v3.4.0 until an aligned stable release is published.
+manifest (`firefly-app/west.yml`) temporarily pins sdk-nrf main at an exact
+commit for nRF93M1 modem support; the comment there names the sdk-zephyr it
+selects. The latest available Nordic toolchain remains pinned to v3.4.0 until
+an aligned stable release is published.
 
 Generated application builds live under `ncsworkspace/builds/`; Twister output
 lives separately under `ncsworkspace/test-results/`.
@@ -30,8 +30,7 @@ bind-mounted into the container, so sources and builds stay on ext4.
 segger.com in a browser; the script picks it up from your Windows Downloads
 folder.
 
-From then on, run the numbered scripts from WSL exactly as before. Each one
-re-launches itself in a throwaway container with the repo mounted at
+From then on, run the numbered scripts from WSL. Each one re-launches itself in a throwaway container with the repo mounted at
 `/workspaces/firefly`, the same path for everyone. If `docker/Dockerfile` or
 a pin has changed since your image was built, the next script rebuilds the
 image first. `./0_docker.sh shell` opens an interactive shell in the container.
@@ -58,7 +57,8 @@ back; `./x_usb.sh list` shows what is where. Replugging or power-cycling the
 DK drops the attachment; the next flash re-attaches. In the VS Code dev
 container, which cannot reach usbipd, run `./x_usb.sh attach` in a WSL
 terminal first (it also runs when the container opens). With several DKs
-attached, pick one with `PROBE_SERIAL=<serial>`.
+attached, pick one with `PROBE_SERIAL=<serial>`. Inside the dev container the
+DK's serial ports are `/dev/host/ttyACM*`; the scripts look there too.
 
 **Serial console:** while the DK is attached to WSL, its COM ports exist only
 in WSL, so a Web Serial log viewer has to run in a Linux browser here.
@@ -81,23 +81,28 @@ next script run. The bundle ID for a version is shown by
 ```bash
 ./3_build.sh app-target -p       # unsigned development target image
 ./3_build.sh sim                 # the app on native_sim (host, no board)
-./4_flash.sh                     # flash over USB (usbipd-win)
+./4_flash.sh                     # flash the development build over USB (usbipd-win)
+./4_flash.sh release             # flash the signed release build
 ./5_debug.sh                     # interactive target debugging
 ./6_menuconfig.sh                # configure an existing build
 ./7_test.sh                      # all automated tests + combined report
+./7_test.sh static               # thread registry + checked zbus publishes
 ./8_format.sh check              # verify C/C++ formatting
 ./8_format.sh apply              # format C/C++ sources and tests
 ./7_test.sh test-native          # optional: run only native tests
 ./7_test.sh test-target-build    # compile portable suites for the DK
 ./7_test.sh test-hardware        # execute DK-only tests (connected board)
+./7_test.sh test-hardware nrf93m1_power   # one suite (any dir under firefly-app/tests)
 ./7_test.sh sanitizer            # ASan + UBSan portable suites
 ./7_test.sh coverage             # HTML report, 90% line/70% branch gate
 ```
 
 Release builds require a private signing key. Run `./x_keygen.sh`, protect the
-result, then use `./3_build.sh release -p`. Release mode alone enables MCUboot,
-production configuration, signing, MCUboot, and a DFU package. The ordinary target
-build does not claim to be signed.
+result, then use `./3_build.sh release`. Release mode alone enables MCUboot,
+production configuration, signing, and a DFU package. It builds into
+`ncsworkspace/builds/build_release`, separate from the development build, so
+neither leaves settings behind in the other. The ordinary target build does not
+claim to be signed.
 
 ## Board and modem
 
@@ -118,7 +123,7 @@ CONFIG_FIREFLY_TARGET_MODEM_NRF93M1=y
 adds the modem's `conf/modem_<x>.conf` + `boards/<x>.overlay`, and stops the
 build if the pair is invalid or doesn't match the board being built (for
 example from VS Code's nRF Connect extension). Flash, debug and the target
-test stages use the same selection. There is one build directory,
+test stages use the same selection. The development build directory is
 `ncsworkspace/builds/build`; after changing the selection, `./3_build.sh`
 rebuilds it. See `firefly-app/README.md` for what each modem configures.
 
@@ -131,10 +136,12 @@ rebuilds it. See `firefly-app/README.md` for what each modem configures.
 - `tests/gpio`: native-only GPIO emulator pipeline through the real input
   subsystem.
 - `tests/hardware`: opt-in tests executed by a board-equipped runner.
+- `tests/nrf93m1_power`, `tests/eg800z_power`: modem power-up/round/power-down
+  tests against the real modem (hardware).
 
 Hardware tests are never presented as having run unless `--device-testing`
-executes them on a connected DK. Pull requests perform a target compile even
-when hardware is unavailable.
+executes them on a connected DK. `./7_test.sh` compiles the portable tests for
+the target even when no hardware is available.
 
 ## Architecture guarantees
 
@@ -151,7 +158,7 @@ and a stop wake-up hook. State shared with service callers is synchronized.
 
 A new production class derived from `firefly::Thread` is not accepted until it
 is listed in `tests/thread/registry.txt` with an existing behavior test. The
-static check runs locally and in CI. Every new threaded service must:
+check runs in `./7_test.sh static`, which `./7_test.sh` includes. Every new threaded service must:
 
 1. Pass the shared lifecycle contract assumptions: duplicate start/stop,
    restart, bounded shutdown, and measured stack margin.
@@ -164,12 +171,13 @@ static check runs locally and in CI. Every new threaded service must:
 The registry check ensures a new subclass cannot silently land without a test;
 it does not pretend a generic lifecycle test proves service-specific behavior.
 
-## CI and quality
+## Quality checks
 
 Twister scenarios are tagged `portable`, `native`, `integration`, `hardware`,
-`contract`, and `service`. CI builds the target app, runs native tests, compiles
-portable tests for the target, checks thread registration and API use, and has
-an opt-in scheduled hardware job. Coverage excludes upstream Zephyr by setting
+`contract`, and `service`. `./7_test.sh` runs the static checks (thread
+registration, checked zbus publishes), native tests, a target compile of the
+portable tests, sanitizers and coverage. There is no CI pipeline yet; hardware
+tests run only on request (`./7_test.sh test-hardware`). Coverage excludes upstream Zephyr by setting
 the application as its base. ASan/UBSan and LED-port fault injection cover
 memory/undefined behavior and mutation-style error paths.
 

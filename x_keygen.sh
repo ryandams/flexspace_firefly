@@ -12,6 +12,7 @@
 # ===========================================================================
 set -euo pipefail
 source "$(dirname "$0")/variables.sh"
+require_workspace   # imgtool comes from the workspace's mcuboot
 
 if [ -f "$BOOT_KEY_FILE" ]; then
     c_warn "!!! A key already exists: $BOOT_KEY_FILE"

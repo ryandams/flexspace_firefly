@@ -19,6 +19,7 @@ case "$which" in
     *)   c_err "usage: $0 [app|sim] [menuconfig|gui]"; exit 1 ;;
 esac
 
+require_workspace
 drop_foreign_build_dir "$dir"
 [ -d "$dir" ] || { c_err "!!! No build at $dir - build it first"; exit 1; }
 

@@ -1,14 +1,10 @@
 # shellcheck shell=bash
 # ===========================================================================
-#  firefly - Nordic nRF54LM20 / nRF Connect SDK, built and tested in WSL2
+#  firefly - nRF Connect SDK, built and tested in the firefly-dev container
 # ===========================================================================
-#  Sourced by every numbered script. Not executable on its own.
-#
-#  Why there is no environment-isolation machinery here:
-#  the Windows scripts had to strip ZEPHYR_SDK_INSTALL_DIR because
-#  vestfrost-level-3 sets it machine-wide. That is a *Windows* environment
-#  variable and does not exist inside WSL2, so the two projects cannot
-#  collide. Different OS, different environment.
+#  Sourced by every numbered script. Not executable on its own. Sourced from
+#  WSL, it re-runs the calling script inside the container (see the end of
+#  this file).
 # ===========================================================================
 
 set -o pipefail
@@ -26,7 +22,7 @@ FIREFLY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #  and modules. Nordic has not published a newer installable toolchain bundle,
 #  so v3.4.0 compiles this development snapshot. Re-align both pins with the
 #  first stable NCS release containing nRF93M1 support.
-NCS_VERSION="${NCS_VERSION:-v3.4.0}"
+NCS_VERSION="v3.4.0"
 
 #  Exact pins for the container image (docker/Dockerfile). Bump these
 #  deliberately - every developer's image rebuilds on their next script run.
@@ -47,7 +43,7 @@ JLINK_VERSION="V966"                  # JLink_Linux_V966_x86_64.deb
 #  of this file); run from the dev container's own terminal it just runs.
 #  The repo is bind-mounted at the same path for everyone, so build trees,
 #  compile_commands.json and launch.json are identical across machines.
-FIREFLY_IMAGE="${FIREFLY_IMAGE:-firefly-dev:latest}"
+FIREFLY_IMAGE="firefly-dev:latest"
 FIREFLY_CONTAINER_ROOT="/workspaces/firefly"
 
 #  Variables a script's caller may export that must reach the container.
@@ -59,20 +55,12 @@ FIREFLY_ENV_PASSTHROUGH=(SIM_BOARD_NAME PRISTINE FLASH_RUNNER PROBE_SERIAL DEVIC
 # ---------------------------------------------------------------------------
 WORKSPACE_DIR="$FIREFLY_ROOT/ncsworkspace"
 WEST_DIR="$WORKSPACE_DIR/.west"
-ZEPHYR_BASE_DIR="$WORKSPACE_DIR/zephyr"
 
 PROJECT_NAME="firefly-app"            # matches `self: path:` in west.yml
-PROJECT_GIT_REPO="firefly-app"        # repo name on GitHub
 PROJECT_GIT_URL="https://github.com/ryandams/firefly-app.git"
 PROJECT_GIT_REV="main"
 PROJECT_DIR="$WORKSPACE_DIR/$PROJECT_NAME"
 
-# `west zephyr-export` writes the shared CMake user package registry.
-# Not needed for west build - it resolves Zephyr from the workspace - but
-# nRF Connect for VS Code's own SDK detection reads exactly this registry
-# to populate its "Manage SDKs" list. Skipping it left the extension
-# stuck on "Install an SDK to get started" despite a working toolchain.
-WEST_ZEPHYR_EXPORT=1
 
 # ---------------------------------------------------------------------------
 #  Build
@@ -81,10 +69,14 @@ WEST_ZEPHYR_EXPORT=1
 #  (CONFIG_FIREFLY_TARGET_BOARD_* / CONFIG_FIREFLY_TARGET_MODEM_*). The app's
 #  CMakeLists.txt adds the modem's files itself; the board has to go to
 #  `west build -b`, so it is read here. Switching either one rebuilds the
-#  single build directory (west goes pristine on a board change by itself).
+#  build directory (west goes pristine on a board change by itself).
+#  Release builds get their own directory: west's "auto" pristine does not
+#  notice changed CMake arguments, so sharing one would carry MCUboot/
+#  production settings into the next development build.
 APP_DIR="$PROJECT_NAME"
 BUILDS_DIR="$WORKSPACE_DIR/builds"
 BUILD_DIR="$BUILDS_DIR/build"
+RELEASE_BUILD_DIR="$BUILDS_DIR/build_release"
 
 TARGET_BOARD="$(awk '/^CONFIG_FIREFLY_TARGET_BOARD_[A-Z0-9_]+=y$/ {
     sub(/^CONFIG_FIREFLY_TARGET_BOARD_/, ""); sub(/=y$/, ""); print; exit }' \
@@ -95,11 +87,18 @@ case "$TARGET_BOARD" in
     *)           BOARD_NAME="" ;;                                # no workspace yet
 esac
 
+# For scripts that need the west workspace (./2_workspace.sh).
+require_workspace() {
+    [ -d "$WEST_DIR" ] && return 0
+    c_err "!!! No west workspace at $WORKSPACE_DIR - run ./2_workspace.sh first"
+    exit 1
+}
+
 # For scripts that build for, or talk to, the target board.
 require_board() {
+    require_workspace
     [ -n "$BOARD_NAME" ] && return 0
     c_err "!!! No known CONFIG_FIREFLY_TARGET_BOARD_*=y in $PROJECT_DIR/prj.conf"
-    c_err "    (no workspace yet? run ./2_workspace.sh)"
     exit 1
 }
 
@@ -109,7 +108,8 @@ SIM_BOARD_NAME="${SIM_BOARD_NAME:-native_sim}"
 SIM_BUILD_DIR="$BUILDS_DIR/build_sim"
 
 #  "auto" lets west decide: incremental unless the build dir is missing or
-#  stale for the current board/config. ./3_build.sh -p forces "always".
+#  was configured for another board or source dir. ./3_build.sh -p forces
+#  "always".
 PRISTINE="${PRISTINE:-auto}"          # always | auto | never
 
 # ---------------------------------------------------------------------------
@@ -166,30 +166,6 @@ drop_foreign_build_dir() {
     [ -n "$was" ] && [ "$was" != "$dir" ] || return 0
     c_warn "Removing $dir - it was configured at $was"
     rm -rf "$dir"
-}
-
-# Which WSL are we on?  Prints: 2 | 1 | none
-#
-# Careful: /proc/version contains "Microsoft" on BOTH WSL1 and WSL2, so the
-# obvious grep is wrong. WSL1 is a syscall translation layer with no real
-# kernel - west and native_sim are not supported there.
-#
-# Signals, most reliable first:
-#   uname -r  ->  WSL2: "...-microsoft-standard-WSL2"   WSL1: "...-Microsoft"
-#   /dev/vsock exists only on WSL2 (Hyper-V socket used for interop)
-#   /run/WSL/ exists only on WSL2
-wsl_version() {
-    grep -qi microsoft /proc/version 2>/dev/null || { echo none; return; }
-
-    local r; r="$(uname -r)"
-    case "$r" in
-        *WSL2*|*wsl2*)              echo 2; return ;;
-        *microsoft-standard*)       echo 2; return ;;
-    esac
-
-    if [ -e /dev/vsock ] || [ -d /run/WSL ]; then echo 2; return; fi
-
-    echo 1
 }
 
 usbipd_bin() {
@@ -279,6 +255,17 @@ usb_attach_probes() {
     c_err "!!! J-Link attached but not usable in WSL after 10 s: $(probe_nodes_pending)"
     c_err "    Missing udev rule? Run ./x_usb.sh setup"
     return 1
+}
+
+# The DKs' serial consoles. The script containers get them as /dev/ttyACM*;
+# the VS Code dev container mounts WSL's /dev at /dev/host instead, so a DK
+# attached after it started still shows up there.
+serial_ports() {
+    local dev
+    for dev in /dev/ttyACM* /dev/host/ttyACM*; do
+        [ -e "$dev" ] && echo "$dev"
+    done
+    return 0
 }
 
 # Sets PROBE_ARGS to west's runner arguments for the J-Link to use.

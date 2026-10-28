@@ -9,6 +9,7 @@ case "$mode" in
     *) c_err "Usage: $0 [check|apply]"; exit 2 ;;
 esac
 
+require_workspace
 mapfile -d '' files < <(
     find "$PROJECT_DIR/code" "$PROJECT_DIR/tests" \
         -type f \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \

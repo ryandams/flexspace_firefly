@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Default: run every automated, non-hardware test and write test-results/report.md.
-# Individual modes: test-native, test-target-build, test-hardware, coverage, sanitizer.
+# Individual modes: static, test-native, test-target-build, test-hardware,
+# coverage, sanitizer. A suite (a directory under firefly-app/tests) may follow
+# a twister mode: ./7_test.sh test-hardware nrf93m1_power
 # ./7_test.sh clean       wipe test-results/ entirely
 #                         (twister renames each run's old output dir aside as
 #                         .1, .2, ... instead of overwriting it, so this
@@ -11,6 +13,7 @@ set -euo pipefail
 source "$(dirname "$0")/variables.sh"
 mode="${1:-all}"
 suite="${2:-}"
+usage="usage: $0 [all|static|test-native|test-target-build|test-hardware|coverage|sanitizer|clean] [suite]"
 
 if [ "$mode" = clean ]; then
     [ -z "$suite" ] || { c_err "clean takes no suite argument"; exit 2; }
@@ -20,11 +23,13 @@ if [ "$mode" = clean ]; then
     exit 0
 fi
 
+require_workspace
+
 if [ "$mode" = all ]; then
     [ -z "$suite" ] || { c_err "A suite cannot be selected in all mode"; exit 2; }
     report="$WORKSPACE_DIR/test-results/report.md"
     mkdir -p "$(dirname "$report")"
-    modes=(test-native test-target-build sanitizer coverage)
+    modes=(static test-native test-target-build sanitizer coverage)
     failed=0
     {
         echo "# Firefly automated test report"
@@ -41,8 +46,12 @@ if [ "$mode" = all ]; then
             result="FAIL"
             failed=1
         fi
-        printf '| `%s` | **%s** | [%s/twister.xml](%s/twister.xml) |\n' \
-            "$test_mode" "$result" "$test_mode" "$test_mode" >> "$report"
+        if [ "$test_mode" = static ]; then
+            details="console output"
+        else
+            details="[$test_mode/twister.xml]($test_mode/twister.xml)"
+        fi
+        printf '| `%s` | **%s** | %s |\n' "$test_mode" "$result" "$details" >> "$report"
     done
     {
         echo
@@ -57,11 +66,27 @@ if [ "$mode" = all ]; then
     exit 0
 fi
 
-case "$suite" in
-    "") path="$PROJECT_NAME/tests" ;;
-    service|thread|gpio|hardware) path="$PROJECT_NAME/tests/$suite" ;;
-    *) c_err "unknown suite: $suite"; exit 2 ;;
+case "$mode" in
+    static|test-native|test-target-build|test-hardware|coverage|sanitizer) ;;
+    *) c_err "$usage"; exit 2 ;;
 esac
+
+# Thread registry and checked-zbus-publish rules (firefly-app/scripts).
+if [ "$mode" = static ]; then
+    [ -z "$suite" ] || { c_err "static takes no suite argument"; exit 2; }
+    "$PROJECT_DIR/scripts/static_analysis.sh"
+    c_ok "Static checks passed"
+    exit 0
+fi
+
+if [ -z "$suite" ]; then
+    path="$PROJECT_NAME/tests"
+elif [ -d "$PROJECT_DIR/tests/$suite" ]; then
+    path="$PROJECT_NAME/tests/$suite"
+else
+    c_err "unknown suite: $suite (one of: $(ls "$PROJECT_DIR/tests" | tr '\n' ' '))"
+    exit 2
+fi
 cd "$WORKSPACE_DIR"
 results_dir="$WORKSPACE_DIR/test-results/$mode"
 mkdir -p "$results_dir"
@@ -71,8 +96,11 @@ case "$mode" in
     test-target-build) require_board; ncs "${base[@]}" -p "$BOARD_NAME" --build-only --tag portable ;;
     test-hardware)
         require_board
+        mapfile -t ports < <(serial_ports)
+        serial="${DEVICE_SERIAL:-${ports[0]:-}}"
+        [ -n "$serial" ] || { c_err "!!! No DK serial port (/dev/ttyACM*) - is the DK attached?"; exit 1; }
         ncs "${base[@]}" -p "$BOARD_NAME" --device-testing \
-            --device-serial "${DEVICE_SERIAL:-/dev/ttyACM0}" --tag hardware ;;
+            --device-serial "$serial" --tag hardware ;;
     coverage)
         ncs "${base[@]}" -p "$SIM_BOARD_NAME" --tag firefly --coverage \
             --coverage-basedir "$PROJECT_DIR" --coverage-tool gcovr
@@ -85,5 +113,4 @@ case "$mode" in
     sanitizer)
         ncs "${base[@]}" -p "$SIM_BOARD_NAME" --tag portable \
             --extra-args=EXTRA_CONF_FILE=asan.conf ;;
-    *) c_err "usage: $0 [all|test-native|test-target-build|test-hardware|coverage|sanitizer|clean] [suite]"; exit 2 ;;
 esac

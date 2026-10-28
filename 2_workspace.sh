@@ -139,11 +139,10 @@ for m in "${!snap_tree[@]}"; do
     fi
 done
 
-if [ "$WEST_ZEPHYR_EXPORT" = 1 ]; then
-    ncs west zephyr-export
-else
-    echo "Skipping 'west zephyr-export' - west build resolves Zephyr from the workspace."
-fi
+# Not needed by west build, which resolves Zephyr from the workspace, but
+# nRF Connect for VS Code finds SDKs through the CMake package registry this
+# writes - without it the extension stays on "Install an SDK to get started".
+ncs west zephyr-export
 
 ncs west list || true
 c_ok ""

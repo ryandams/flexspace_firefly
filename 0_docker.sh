@@ -7,8 +7,8 @@
 #    ./0_docker.sh build --if-stale   ...only if missing or out of date
 #    ./0_docker.sh shell        interactive shell in the container
 #
-#  After `install` + `build`, run ./2_workspace.sh and carry on as before -
-#  every numbered script re-launches itself inside the container (see the
+#  After `install` + `build`, run ./2_workspace.sh, then the other numbered
+#  scripts - each re-launches itself inside the container (see the
 #  "Container" section of variables.sh). You rarely need `build` by hand: a
 #  script that finds the image missing or stale rebuilds it first.
 #
@@ -26,7 +26,12 @@ JLINK_DEB="JLink_Linux_${JLINK_VERSION}_x86_64.deb"
 VENDOR_DIR="$FIREFLY_ROOT/docker/vendor"
 
 do_install() {
-    [ "$(wsl_version)" = 2 ] || c_warn "Not WSL2 - continuing, but this script is written for WSL2."
+    # WSL2's kernel release ends in -microsoft-standard-WSL2; WSL1 has no real
+    # kernel and cannot run Docker Engine.
+    case "$(uname -r)" in
+        *microsoft-standard*) ;;
+        *) c_warn "Not WSL2 - continuing, but this script is written for WSL2." ;;
+    esac
 
     if [ "$(ps -p 1 -o comm= 2>/dev/null)" != systemd ]; then
         c_err "!!! systemd is not running (needed to start dockerd). Add to /etc/wsl.conf:"

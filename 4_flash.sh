@@ -8,8 +8,8 @@
 #  container; the first time for a given DK/USB port, Windows asks for admin
 #  approval to share it.
 #
-#  Flashes what ./3_build.sh last built:
-#      ./4_flash.sh
+#      ./4_flash.sh            the development build (./3_build.sh)
+#      ./4_flash.sh release    the signed release build (./3_build.sh release)
 #
 #  Several J-Links attached: PROBE_SERIAL=<serial> ./4_flash.sh
 #  (./x_usb.sh list shows them).
@@ -18,7 +18,12 @@ set -euo pipefail
 FIREFLY_USB=1
 source "$(dirname "$0")/variables.sh"
 
-[ -d "$BUILD_DIR" ] || { c_err "!!! No build - run ./3_build.sh first"; exit 1; }
+case "${1:-}" in
+    "")      build="" ;;
+    release) build=" release"; BUILD_DIR="$RELEASE_BUILD_DIR" ;;
+    *)       c_err "usage: $0 [release]"; exit 2 ;;
+esac
+[ -d "$BUILD_DIR" ] || { c_err "!!! No build - run ./3_build.sh$build first"; exit 1; }
 
 select_probe || exit 1
 args=(west flash --build-dir "$BUILD_DIR" -r "$FLASH_RUNNER" "${PROBE_ARGS[@]}")
@@ -37,5 +42,5 @@ fi
 
 c_ok ""
 c_ok "Flashed. The DK's serial console is in WSL too while it is attached:"
-c_ok "  $(ls /dev/ttyACM* 2>/dev/null | tr '\n' ' ')"
+c_ok "  $(serial_ports | tr '\n' ' ')"
 c_ok "(./x_usb.sh detach hands the DK back to Windows.)"

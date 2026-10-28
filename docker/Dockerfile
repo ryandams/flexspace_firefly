@@ -43,9 +43,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential gcc-multilib g++-multilib \
-      git curl wget file xz-utils unzip ca-certificates \
-      python3 python3-pip python3-venv \
-      device-tree-compiler \
+      git curl file xz-utils ca-certificates \
       libxcb-render-util0 libxcb-shape0 libxcb-icccm4 libxcb-keysyms1 \
       libxcb-image0 libxkbcommon-x11-0 libsm6 libice6 \
       gdb ripgrep gcovr \

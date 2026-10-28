@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build modes: app-target (default), release (MCUboot + signed image), or sim
-# (the app on native_sim, for debugging on the host without a board).
+# Build modes: app-target (default), release (MCUboot + signed image, in its
+# own builds/build_release), or sim (the app on native_sim, for debugging on
+# the host without a board).
 # Board and modem: CONFIG_FIREFLY_TARGET_* in firefly-app/prj.conf.
 set -euo pipefail
 source "$(dirname "$0")/variables.sh"
@@ -16,13 +17,14 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-[ -d "$WEST_DIR" ] || { c_err "No workspace - run ./2_workspace.sh"; exit 1; }
+require_workspace
 if [ "$mode" = sim ]; then
     BOARD_NAME="$SIM_BOARD_NAME"
     BUILD_DIR="$SIM_BUILD_DIR"
 else
     require_board
     c_info "Board $BOARD_NAME (from firefly-app/prj.conf)"
+    [ "$mode" = release ] && BUILD_DIR="$RELEASE_BUILD_DIR"
 fi
 drop_foreign_build_dir "$BUILD_DIR"
 
